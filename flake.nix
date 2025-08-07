@@ -17,21 +17,23 @@
           buildInputs = with pkgs; [
             zig
             zls
-          ] ++ pkgs.lib.optionals isDarwin [
-            pkgs.darwin.apple_sdk.frameworks.Foundation
-            pkgs.darwin.apple_sdk.frameworks.Cocoa
-            pkgs.darwin.apple_sdk.frameworks.AppKit
           ];
 
-          # Set environment variables to help Zig find system libraries
+          # Set environment variables for macOS development with impure system frameworks
           shellHook = pkgs.lib.optionalString isDarwin ''
             export MACOSX_DEPLOYMENT_TARGET=11.0
-            export CPATH="${pkgs.darwin.apple_sdk.frameworks.Foundation}/Library/Frameworks/Foundation.framework/Headers:${pkgs.darwin.apple_sdk.frameworks.Cocoa}/Library/Frameworks/Cocoa.framework/Headers:$CPATH"
-            export LIBRARY_PATH="${pkgs.darwin.apple_sdk.frameworks.Foundation}/Library/Frameworks:${pkgs.darwin.apple_sdk.frameworks.Cocoa}/Library/Frameworks:$LIBRARY_PATH"
+            export IN_NIX_SHELL=1
+            
+            # Allow access to system frameworks (impure)
+            export NIX_ENFORCE_PURITY=0
+            
+            # Ensure system paths are available
+            export LIBRARY_PATH="/usr/lib:/System/Library/Frameworks:$LIBRARY_PATH"
+            export FRAMEWORK_PATH="/System/Library/Frameworks:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks:$FRAMEWORK_PATH"
           '' + ''
             echo "Zig development environment loaded"
             echo "Zig version: $(zig version)"
-            echo "macOS frameworks available for GUI development"
+            echo "Using host system macOS frameworks (impure build)"
           '';
         };
       });

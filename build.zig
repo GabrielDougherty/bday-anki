@@ -12,9 +12,25 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Check if we're in a nix environment
+    const is_nix = std.process.getEnvVarOwned(b.allocator, "IN_NIX_SHELL") catch null;
+    if (is_nix) |_| {
+        // In nix, use the host system frameworks (impure build)
+        std.debug.print("Building in nix environment - using host system frameworks\n", .{});
+        
+        // Add system framework search paths
+        exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/Frameworks" });
+        exe.addFrameworkPath(.{ .cwd_relative = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks" });
+        
+        // Don't link objc explicitly - it's provided by the frameworks on modern macOS
+        std.debug.print("Added system framework paths (objc provided by frameworks)\n", .{});
+    } else {
+        // Normal system build
+        exe.linkSystemLibrary("objc");
+    }
+
     exe.linkFramework("Cocoa");
     exe.linkFramework("Foundation");
-    exe.linkSystemLibrary("objc");
 
     b.installArtifact(exe);
 
