@@ -103,14 +103,19 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8) !void {
             }
 
             // Extract month and day from birthday
-            if (std.mem.indexOf(u8, birthday_clean, ",")) |comma_idx| {
-                const month_day = std.mem.trim(u8, birthday_clean[0..comma_idx], " \t\n\r");
+            if (std.mem.indexOf(u8, birthday_clean, ",")) |first_comma_idx| {
+                // Find the second comma to get the "Month Day" part
+                const after_first_comma = birthday_clean[first_comma_idx + 1 ..];
+                if (std.mem.indexOf(u8, after_first_comma, ",")) |second_comma_idx| {
+                    // Extract "Month Day" (between first and second comma)
+                    const month_day_full = std.mem.trim(u8, after_first_comma[0..second_comma_idx], " \t\n\r");
 
-                // Create Anki card
-                const card = try std.fmt.allocPrint(allocator, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, month_day });
-                try cards.append(card);
+                    // Create Anki card
+                    const card = try std.fmt.allocPrint(allocator, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, month_day_full });
+                    try cards.append(card);
 
-                std.debug.print("Card: When is {s}'s birthday? -> {s}\n", .{ current_name.?, month_day });
+                    std.debug.print("Card: When is {s}'s birthday? -> {s}\n", .{ current_name.?, month_day_full });
+                }
             }
 
             current_name = next_name;
@@ -126,5 +131,5 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8) !void {
     }
 
     std.debug.print("\nCreated birthdays.txt with {} cards for Anki import.\n", .{cards.items.len});
-    std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n");
+    std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n", .{});
 }
