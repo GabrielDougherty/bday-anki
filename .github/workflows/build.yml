@@ -40,12 +40,20 @@ jobs:
       uses: cachix/install-nix-action@v25
       with:
         nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          trusted-users = root runner
     
-    - name: Enable Nix flakes
+    - name: Wait for Nix daemon
       run: |
-        echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf
-        sudo launchctl stop org.nixos.nix-daemon
-        sudo launchctl start org.nixos.nix-daemon
+        for i in {1..30}; do
+          if nix --version >/dev/null 2>&1; then
+            echo "Nix daemon is ready"
+            break
+          fi
+          echo "Waiting for Nix daemon... ($i/30)"
+          sleep 2
+        done
     
     - name: Build with Nix (impure mode)
       run: nix develop --impure -c zig build
