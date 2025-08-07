@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-macos-normal:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.14.1
+    
+    - name: Build with Zig (normal)
+      run: zig build
+    
+    - name: Upload build artifacts (normal)
+      uses: actions/upload-artifact@v4
+      with:
+        name: bdays-macos-normal
+        path: zig-out/bin/bdays
+        retention-days: 30
+
+  build-macos-nix:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v25
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+    
+    - name: Build with Nix (impure mode)
+      uses: nicknovitski/nix-develop@v1
+      with:
+        arguments: "--impure"
+        command: "zig build"
+    
+    - name: Upload build artifacts (nix)
+      uses: actions/upload-artifact@v4
+      with:
+        name: bdays-macos-nix
+        path: zig-out/bin/bdays
+        retention-days: 30
