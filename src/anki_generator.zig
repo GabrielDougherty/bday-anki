@@ -137,7 +137,8 @@ pub fn fetchContactsData(allocator: std.mem.Allocator, debug_mode: bool) ?[]cons
     const applescript =
         \\try
         \\    tell application "Contacts"
-        \\        delay 1
+        \\        launch
+        \\        delay 3
         \\        set contactCount to count of people
         \\        if contactCount = 0 then
         \\            return "No contacts found or permission denied"
