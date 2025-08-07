@@ -286,36 +286,44 @@ fn createNSString(text: [*:0]const u8) c.id {
     return objc_msgSend_ptr(string_alloc, initWithUTF8String_sel, text);
 }
 
-// Create a simple target object that can respond to button clicks
-fn createButtonTarget() c.id {
-    // For simplicity, we'll use the app delegate as our target
-    // since we have our buttonClicked function available globally
-    const NSApplication = objc_getClass("NSApplication");
-    const sharedApplication_sel = sel_registerName("sharedApplication");
-    const app = objc_msgSend(NSApplication, sharedApplication_sel);
+// Create a custom class that can respond to button/menu actions
+fn createCustomResponder() c.id {
+    // Get the NSObject class as our base
+    const NSObject = objc_getClass("NSObject");
     
-    const delegate_sel = sel_registerName("delegate");
-    var delegate = objc_msgSend(app, delegate_sel);
+    // Create a new class that inherits from NSObject
+    const CustomResponder = c.objc_allocateClassPair(NSObject, "CustomResponder", 0);
     
-    // If no delegate exists, use the app itself as target
-    if (delegate == null) {
-        delegate = app;
+    // Add our method to the class
+    const generateCards_sel = sel_registerName("generateCards:");
+    const method_impl = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) void, @ptrCast(&generateCardsImpl));
+    
+    const success = c.class_addMethod(CustomResponder, generateCards_sel, 
+        @as(c.IMP, @ptrCast(method_impl)), "v@:@");
+    
+    if (!success) {
+        std.debug.print("Failed to add method to custom class\n", .{});
     }
     
-    return delegate;
+    // Register the class
+    c.objc_registerClassPair(CustomResponder);
+    
+    // Create an instance
+    const alloc_sel = sel_registerName("alloc");
+    const init_sel = sel_registerName("init");
+    const instance_alloc = objc_msgSend(CustomResponder, alloc_sel);
+    const instance = objc_msgSend(instance_alloc, init_sel);
+    
+    std.debug.print("Created custom responder class and instance\n", .{});
+    return instance;
 }
 
-// Create menu responder
-fn createMenuResponder() c.id {
-    const NSApplication = objc_getClass("NSApplication");
-    const sharedApplication_sel = sel_registerName("sharedApplication");
-    return objc_msgSend(NSApplication, sharedApplication_sel);
-}
-
-// Export function that will be called by menu
-export fn generateCards(sender: c.id) void {
+// Implementation function that will be called by the Objective-C runtime
+export fn generateCardsImpl(self: c.id, _cmd: c.SEL, sender: c.id) void {
+    _ = self;
+    _ = _cmd; 
     _ = sender;
-    std.debug.print("Generate Cards menu item clicked!\n", .{});
+    std.debug.print("Custom responder generateCards called!\n", .{});
     
     // Create a background thread to run the card generation
     const thread = std.Thread.spawn(.{}, backgroundCardGeneration, .{}) catch |err| {
@@ -399,7 +407,7 @@ pub fn main() !void {
     
     // Set label properties
     const setStringValue_sel = sel_registerName("setStringValue:");
-    const instructions = createNSString("Use the menu: Birthday Generator > Generate Birthday Cards (Cmd+G)\nOr press Cmd+Q to quit the application.");
+    const instructions = createNSString("Click the 'Generate Cards' button or press Cmd+G\nPress Cmd+Q to quit the application.");
     _ = objc_msgSend_id(label, setStringValue_sel, instructions);
     
     const setBezeled_sel = sel_registerName("setBezeled:");
@@ -412,10 +420,18 @@ pub fn main() !void {
     
     std.debug.print("Created instruction label...\n", .{});
     
-    // For now, let's make the app work differently:
-    // The button will be visible but we'll add a menu item that works
-    // And we'll provide instructions for the user
-    std.debug.print("Button created - we'll add a working menu item...\n", .{});
+    // Create our custom responder that can handle actions
+    const responder = createCustomResponder();
+    
+    // Connect button to our custom responder
+    const setTarget_sel = sel_registerName("setTarget:");
+    _ = objc_msgSend_id(button, setTarget_sel, responder);
+    
+    const setAction_sel = sel_registerName("setAction:");
+    const generateCards_action_sel = sel_registerName("generateCards:");
+    _ = objc_msgSend_ptr(button, setAction_sel, @ptrCast(generateCards_action_sel));
+    
+    std.debug.print("Connected button to custom responder...\n", .{});
     
     // Set the window to release when closed, which will terminate the app
     const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
@@ -458,20 +474,21 @@ pub fn main() !void {
     const app_submenu_alloc = objc_msgSend(NSMenu, alloc_sel);
     const app_submenu = objc_msgSend(app_submenu_alloc, init_sel);
     
-    // Create Generate Cards menu item
+    // Create Generate Cards menu item using proper target/action
     const generate_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
     const initWithTitle_sel = sel_registerName("initWithTitle:action:keyEquivalent:");
     const generate_title = createNSString("Generate Birthday Cards");
-    const generate_action_sel = sel_registerName("generateCards:");
+    const generateCards_sel = sel_registerName("generateCards:");
     const cmd_g = createNSString("g");
     
     const generate_func = @as(*const fn (c.id, c.SEL, c.id, c.SEL, c.id) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
-    const generate_item = generate_func(generate_item_alloc, initWithTitle_sel, generate_title, generate_action_sel, cmd_g);
+    const generate_item = generate_func(generate_item_alloc, initWithTitle_sel, generate_title, generateCards_sel, cmd_g);
     
-    // Create a simple responder for the menu action
-    const responder = createMenuResponder();
+    // Set the target to our custom responder (reuse the same one from button)
     const setTarget_gen_sel = sel_registerName("setTarget:");
     _ = objc_msgSend_id(generate_item, setTarget_gen_sel, responder);
+    
+    std.debug.print("Created menu item with proper target/action...\n", .{});
     
     // Add generate item to app submenu
     const addItem_sel = sel_registerName("addItem:");
