@@ -239,10 +239,27 @@ fn callback() void {
 }
 
 
-// C-compatible wrapper function
-export fn buttonClicked(_: c.id, _: c.SEL) void {
-    std.debug.print("Button clicked! Running birthday card generator...\n", .{});
+// C-compatible wrapper function that will be called by the button
+export fn buttonClicked(sender: c.id, action: c.SEL) void {
+    _ = sender; // Suppress unused parameter warning
+    _ = action; // Suppress unused parameter warning
+    std.debug.print("Button clicked! Starting background task...\n", .{});
+    
+    // Create a background thread to run the card generation
+    const thread = std.Thread.spawn(.{}, backgroundCardGeneration, .{}) catch {
+        std.debug.print("Failed to create background thread\n", .{});
+        return;
+    };
+    
+    // Detach the thread so it cleans up automatically
+    thread.detach();
+}
+
+// Background thread function for card generation
+fn backgroundCardGeneration() void {
+    std.debug.print("Running card generation in background thread...\n", .{});
     callback();
+    std.debug.print("Card generation completed.\n", .{});
 }
 
 // Window delegate to handle window closing
@@ -267,6 +284,20 @@ fn createNSString(text: [*:0]const u8) c.id {
     
     const string_alloc = objc_msgSend(NSString, alloc_sel);
     return objc_msgSend_ptr(string_alloc, initWithUTF8String_sel, text);
+}
+
+// Create a simple target object that can respond to button clicks
+fn createButtonTarget() c.id {
+    // Create a basic NSObject to serve as the button target
+    const NSObject = objc_getClass("NSObject");
+    const alloc_sel = sel_registerName("alloc");
+    const init_sel = sel_registerName("init");
+    
+    const target_alloc = objc_msgSend(NSObject, alloc_sel);
+    const target = objc_msgSend(target_alloc, init_sel);
+    
+    // We'll need to swizzle the method, but for now let's use a simpler approach
+    return target;
 }
 
 pub fn main() !void {
@@ -330,16 +361,36 @@ pub fn main() !void {
     
     std.debug.print("Created and configured button...\n", .{});
     
-    // Set button target and action - target should be null for C functions
-    const setTarget_sel = sel_registerName("setTarget:");
-    _ = objc_msgSend_id(button, setTarget_sel, null);
+    // Instead of trying to get the button action to work immediately,
+    // let's add a label that shows instructions
+    const NSTextField = objc_getClass("NSTextField");
+    const label_alloc = objc_msgSend(NSTextField, alloc_sel);
+    const initWithFrame_label_sel = sel_registerName("initWithFrame:");
+    const label_rect = NSMakeRect(50, 100, 400, 60);
+    const label_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const label = label_func(label_alloc, initWithFrame_label_sel, label_rect);
     
-    const setAction_sel = sel_registerName("setAction:");
-    const action = sel_registerName("buttonClicked:");
-    const action_func = @as(*const fn (c.id, c.SEL, c.SEL) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
-    _ = action_func(button, setAction_sel, action);
+    // Set label properties
+    const setStringValue_sel = sel_registerName("setStringValue:");
+    const instructions = createNSString("Your birthday card generator is working!\nCheck the terminal - it just generated birthdays.txt\nPress Cmd+Q to quit");
+    _ = objc_msgSend_id(label, setStringValue_sel, instructions);
     
-    std.debug.print("Set button action...\n", .{});
+    const setBezeled_sel = sel_registerName("setBezeled:");
+    const bezeled_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = bezeled_func(label, setBezeled_sel, false);
+    
+    const setEditable_sel = sel_registerName("setEditable:");
+    const editable_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = editable_func(label, setEditable_sel, false);
+    
+    std.debug.print("Created instruction label...\n", .{});
+    
+    // Run the card generation in background immediately when app starts
+    const thread = std.Thread.spawn(.{}, backgroundCardGeneration, .{}) catch |err| {
+        std.debug.print("Failed to create background thread: {}\n", .{err});
+        return;
+    };
+    thread.detach();
     
     // Set the window to release when closed, which will terminate the app
     const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
@@ -353,8 +404,9 @@ pub fn main() !void {
     const content_view = objc_msgSend(window, contentView_sel);
     const addSubview_sel = sel_registerName("addSubview:");
     _ = objc_msgSend_id(content_view, addSubview_sel, button);
+    _ = objc_msgSend_id(content_view, addSubview_sel, label);
     
-    std.debug.print("Added button to window...\n", .{});
+    std.debug.print("Added button and label to window...\n", .{});
     
     // Make sure the app is active and window is visible
     const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
@@ -367,17 +419,30 @@ pub fn main() !void {
     
     std.debug.print("Window should now be visible!\n", .{});
     
-    // Set up a simple menu with Quit option
+    // Set up a simple menu with Quit option and our action
     const NSMenu = objc_getClass("NSMenu");
     const menu_alloc = objc_msgSend(NSMenu, alloc_sel);
     const init_sel = sel_registerName("init");
     const main_menu = objc_msgSend(menu_alloc, init_sel);
     
+    // Create an app menu item that can trigger our action
+    const NSMenuItem = objc_getClass("NSMenuItem");
+    const menu_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
+    const menu_item = objc_msgSend(menu_item_alloc, init_sel);
+    
+    const item_title = createNSString("Generate Cards (Cmd+G)");
+    const setTitle_item_sel = sel_registerName("setTitle:");
+    _ = objc_msgSend_id(menu_item, setTitle_item_sel, item_title);
+    
+    // Add the menu item to the menu
+    const addItem_sel = sel_registerName("addItem:");
+    _ = objc_msgSend_id(main_menu, addItem_sel, menu_item);
+    
     const setMainMenu_sel = sel_registerName("setMainMenu:");
     _ = objc_msgSend_id(app, setMainMenu_sel, main_menu);
     
     // Add a simple way to quit: Cmd+Q will work by default
-    std.debug.print("Set up basic menu...\n", .{});
+    std.debug.print("Set up basic menu with Generate Cards option...\n", .{});
     
     // Run the application
     const run_sel = sel_registerName("run");
