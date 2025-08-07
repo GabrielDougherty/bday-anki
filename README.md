@@ -61,6 +61,28 @@ To see detailed output during card generation, run with the `--debug` flag:
 ./zig-out/bin/bdays --debug
 ```
 
+### Creating a Release
+
+To create a distributable DMG installer:
+
+1. Ensure you have `create-dmg` installed:
+   ```bash
+   brew install create-dmg
+   ```
+
+2. Run the release script:
+   ```bash
+   ./release.sh
+   ```
+
+3. When prompted, enter the version number (e.g., `1.2`, `2.0`, etc.)
+
+The script will:
+- Update the app bundle's version information
+- Build the latest code
+- Copy the binary to the app bundle
+- Create a DMG installer named `AnkiBirthdays-[VERSION].dmg`
+
 ## Usage
 
 1. Launch the application
