@@ -3,11 +3,20 @@ const c = @cImport({
     @cInclude("objc/objc.h");
     @cInclude("objc/runtime.h");
     @cInclude("objc/message.h");
+    @cInclude("dispatch/dispatch.h");
     @cDefine("OBJC_OLD_DISPATCH_PROTOTYPES", "0");
 });
 
+// Helper function to cast dispatch queue
+fn getMainQueue() c.dispatch_queue_t {
+    return c.dispatch_get_main_queue();
+}
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
+
+// Global reference to progress bar for updating from background thread
+var global_progress_bar: ?c.id = null;
 
 // Objective-C runtime helpers
 fn objc_getClass(name: [*:0]const u8) c.Class {
@@ -76,8 +85,25 @@ fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: b
     defer cards.deinit();
 
     var current_name: ?[]const u8 = null;
+    var total_segments: usize = 0;
+    var processed_segments: usize = 0;
+
+    // First pass: count segments for progress tracking
+    var count_it = std.mem.splitScalar(u8, raw_data, ':');
+    while (count_it.next()) |_| {
+        total_segments += 1;
+    }
+
+    std.debug.print("Processing {} segments for progress tracking...\n", .{total_segments});
 
     while (it.next()) |segment| {
+        processed_segments += 1;
+        
+        // Update progress every few segments
+        if (processed_segments % 5 == 0 or processed_segments == total_segments) {
+            setProgressValue(@as(f64, @floatFromInt(processed_segments)), @as(f64, @floatFromInt(total_segments)));
+        }
+
         if (current_name == null) {
             // This is a name
             current_name = std.mem.trim(u8, segment, " \t\n\r");
@@ -258,7 +284,16 @@ export fn buttonClicked(sender: c.id, action: c.SEL) void {
 // Background thread function for card generation
 fn backgroundCardGeneration() void {
     std.debug.print("Running card generation in background thread...\n", .{});
+    
+    // Show progress bar
+    showProgressBar();
+    
+    // Run the card generation
     callback();
+    
+    // Hide progress bar when done
+    hideProgressBar();
+    
     std.debug.print("Card generation completed.\n", .{});
 }
 
@@ -275,6 +310,111 @@ export fn windowShouldClose(_: c.id, _: c.SEL) bool {
     _ = objc_msgSend_id(app, terminate_sel, null);
     
     return true;
+}
+
+// Progress bar control functions (dispatch to main thread)
+fn showProgressBar() void {
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, null, showProgressBarOnMainThread);
+}
+
+fn hideProgressBar() void {
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, null, hideProgressBarOnMainThread);
+}
+
+// Functions that actually update the UI (must run on main thread)
+export fn showProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
+    _ = context; // Unused
+    if (global_progress_bar) |progress_bar| {
+        std.debug.print("Showing progress bar on main thread...\n", .{});
+        
+        // Show progress bar
+        const setHidden_sel = sel_registerName("setHidden:");
+        const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+        _ = hidden_func(progress_bar, setHidden_sel, false);
+        
+        // Start animation for indeterminate progress
+        const startAnimation_sel = sel_registerName("startAnimation:");
+        _ = objc_msgSend_id(progress_bar, startAnimation_sel, null);
+        
+        std.debug.print("Started progress bar animation on main thread\n", .{});
+    } else {
+        std.debug.print("Global progress bar is null!\n", .{});
+    }
+}
+
+export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
+    _ = context; // Unused
+    if (global_progress_bar) |progress_bar| {
+        std.debug.print("Hiding progress bar on main thread...\n", .{});
+        
+        // Stop animation
+        const stopAnimation_sel = sel_registerName("stopAnimation:");
+        _ = objc_msgSend_id(progress_bar, stopAnimation_sel, null);
+        
+        // Hide progress bar
+        const setHidden_sel = sel_registerName("setHidden:");
+        const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+        _ = hidden_func(progress_bar, setHidden_sel, true);
+        
+        std.debug.print("Stopped and hid progress bar on main thread\n", .{});
+    } else {
+        std.debug.print("Global progress bar is null!\n", .{});
+    }
+}
+
+// Progress value setting (dispatch to main thread)
+fn setProgressValue(value: f64, max_value: f64) void {
+    const SetProgressValueContext = struct {
+        value: f64,
+        max_value: f64,
+    };
+    
+    // Allocate context on heap and store the values
+    const context = allocator.create(SetProgressValueContext) catch {
+        std.debug.print("Failed to allocate context for progress update\n", .{});
+        return;
+    };
+    context.value = value;
+    context.max_value = max_value;
+    
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, context, setProgressValueOnMainThread);
+}
+
+export fn setProgressValueOnMainThread(context_ptr: ?*anyopaque) callconv(.C) void {
+    if (context_ptr) |ptr| {
+        const SetProgressValueContext = struct {
+            value: f64,
+            max_value: f64,
+        };
+        const context = @as(*SetProgressValueContext, @ptrCast(@alignCast(ptr)));
+        const value = context.value;
+        const max_value = context.max_value;
+        
+        // Free the context
+        allocator.destroy(context);
+        
+        if (global_progress_bar) |progress_bar| {
+            // Switch to determinate mode if needed
+            const setIndeterminate_sel = sel_registerName("setIndeterminate:");
+            const indeterminate_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+            _ = indeterminate_func(progress_bar, setIndeterminate_sel, false);
+            
+            // Set max value
+            const setMaxValue_sel = sel_registerName("setMaxValue:");
+            const max_func = @as(*const fn (c.id, c.SEL, f64) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+            _ = max_func(progress_bar, setMaxValue_sel, max_value);
+            
+            // Set current value
+            const setDoubleValue_sel = sel_registerName("setDoubleValue:");
+            const value_func = @as(*const fn (c.id, c.SEL, f64) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+            _ = value_func(progress_bar, setDoubleValue_sel, value);
+            
+            std.debug.print("Set progress value to {}/{} on main thread\n", .{value, max_value});
+        }
+    }
 }
 
 fn createNSString(text: [*:0]const u8) c.id {
@@ -420,6 +560,31 @@ pub fn main() !void {
     
     std.debug.print("Created instruction label...\n", .{});
     
+    // Create progress bar
+    const NSProgressIndicator = objc_getClass("NSProgressIndicator");
+    const progress_alloc = objc_msgSend(NSProgressIndicator, alloc_sel);
+    const progress_rect = NSMakeRect(50, 180, 400, 30); // Bigger and higher position
+    const progress_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const progress_bar = progress_func(progress_alloc, initWithFrame_label_sel, progress_rect);
+    
+    // Configure progress bar
+    const setStyle_sel = sel_registerName("setStyle:");
+    const style_func = @as(*const fn (c.id, c.SEL, c_ulong) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = style_func(progress_bar, setStyle_sel, 0); // NSProgressIndicatorStyleBar
+    
+    const setIndeterminate_sel = sel_registerName("setIndeterminate:");
+    const indeterminate_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = indeterminate_func(progress_bar, setIndeterminate_sel, true);
+    
+    const setHidden_sel = sel_registerName("setHidden:");
+    const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = hidden_func(progress_bar, setHidden_sel, true); // Start hidden
+    
+    std.debug.print("Created progress bar (hidden until generation starts)...\n", .{});
+    
+    // Store global reference for background thread access
+    global_progress_bar = progress_bar;
+    
     // Create our custom responder that can handle actions
     const responder = createCustomResponder();
     
@@ -446,8 +611,9 @@ pub fn main() !void {
     const addSubview_sel = sel_registerName("addSubview:");
     _ = objc_msgSend_id(content_view, addSubview_sel, button);
     _ = objc_msgSend_id(content_view, addSubview_sel, label);
+    _ = objc_msgSend_id(content_view, addSubview_sel, progress_bar);
     
-    std.debug.print("Added button and label to window...\n", .{});
+    std.debug.print("Added button, label, and progress bar to window...\n", .{});
     
     // Make sure the app is active and window is visible
     const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
