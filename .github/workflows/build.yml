@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ main, gui ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, gui ]
+    branches: [ main ]
 
 jobs:
   build-macos-normal:
