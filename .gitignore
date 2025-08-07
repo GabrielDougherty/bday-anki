@@ -50,3 +50,7 @@ Thumbs.db
 
 # test file
 birthdays.txt
+
+# release stuff
+*.dmg
+AnkiBirthdays.app/Contents/MacOS/bdays
