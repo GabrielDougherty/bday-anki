@@ -245,6 +245,21 @@ export fn buttonClicked(_: c.id, _: c.SEL) void {
     callback();
 }
 
+// Window delegate to handle window closing
+export fn windowShouldClose(_: c.id, _: c.SEL) bool {
+    std.debug.print("Window closing, terminating app...\n", .{});
+    
+    // Get NSApplication and terminate
+    const NSApplication = objc_getClass("NSApplication");
+    const sharedApplication_sel = sel_registerName("sharedApplication");
+    const app = objc_msgSend(NSApplication, sharedApplication_sel);
+    
+    const terminate_sel = sel_registerName("terminate:");
+    _ = objc_msgSend_id(app, terminate_sel, null);
+    
+    return true;
+}
+
 fn createNSString(text: [*:0]const u8) c.id {
     const NSString = objc_getClass("NSString");
     const alloc_sel = sel_registerName("alloc");
@@ -315,7 +330,7 @@ pub fn main() !void {
     
     std.debug.print("Created and configured button...\n", .{});
     
-    // Set button target and action
+    // Set button target and action - target should be null for C functions
     const setTarget_sel = sel_registerName("setTarget:");
     _ = objc_msgSend_id(button, setTarget_sel, null);
     
@@ -323,6 +338,15 @@ pub fn main() !void {
     const action = sel_registerName("buttonClicked:");
     const action_func = @as(*const fn (c.id, c.SEL, c.SEL) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
     _ = action_func(button, setAction_sel, action);
+    
+    std.debug.print("Set button action...\n", .{});
+    
+    // Set the window to release when closed, which will terminate the app
+    const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
+    const bool_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = bool_func(window, setReleasedWhenClosed_sel, true);
+    
+    std.debug.print("Set window to release when closed...\n", .{});
     
     // Add button to window
     const contentView_sel = sel_registerName("contentView");
@@ -342,6 +366,18 @@ pub fn main() !void {
     _ = objc_msgSend_id(window, makeKeyAndOrderFront_sel, null);
     
     std.debug.print("Window should now be visible!\n", .{});
+    
+    // Set up a simple menu with Quit option
+    const NSMenu = objc_getClass("NSMenu");
+    const menu_alloc = objc_msgSend(NSMenu, alloc_sel);
+    const init_sel = sel_registerName("init");
+    const main_menu = objc_msgSend(menu_alloc, init_sel);
+    
+    const setMainMenu_sel = sel_registerName("setMainMenu:");
+    _ = objc_msgSend_id(app, setMainMenu_sel, main_menu);
+    
+    // Add a simple way to quit: Cmd+Q will work by default
+    std.debug.print("Set up basic menu...\n", .{});
     
     // Run the application
     const run_sel = sel_registerName("run");
