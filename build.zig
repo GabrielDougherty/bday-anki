@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     // Create executable for bdays
     const exe = b.addExecutable(.{
         .name = "bdays",
-        .root_source_file = b.path("bdays.zig"),
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });
