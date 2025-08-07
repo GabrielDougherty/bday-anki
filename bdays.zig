@@ -109,12 +109,34 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8) !void {
                 if (std.mem.indexOf(u8, after_first_comma, ",")) |second_comma_idx| {
                     // Extract "Month Day" (between first and second comma)
                     const month_day_full = std.mem.trim(u8, after_first_comma[0..second_comma_idx], " \t\n\r");
+                    
+                    // Extract year (after second comma)
+                    const after_second_comma = after_first_comma[second_comma_idx + 1..];
+                    var year_part: []const u8 = "";
+                    if (std.mem.indexOf(u8, after_second_comma, " ")) |space_idx| {
+                        year_part = std.mem.trim(u8, after_second_comma[0..space_idx], " \t\n\r");
+                    } else {
+                        // If no space found, take everything up to "at" if it exists
+                        if (std.mem.indexOf(u8, after_second_comma, " at")) |at_idx| {
+                            year_part = std.mem.trim(u8, after_second_comma[0..at_idx], " \t\n\r");
+                        }
+                    }
+                    
+                    std.debug.print("Debug - year_part: '{s}'\n", .{year_part});
+                    
+                    // Create answer - include year unless it's 1604
+                    var answer: []const u8 = undefined;
+                    if (std.mem.eql(u8, year_part, "1604") or year_part.len == 0) {
+                        answer = month_day_full;
+                    } else {
+                        answer = try std.fmt.allocPrint(allocator, "{s}, {s}", .{ month_day_full, year_part });
+                    }
 
                     // Create Anki card
-                    const card = try std.fmt.allocPrint(allocator, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, month_day_full });
+                    const card = try std.fmt.allocPrint(allocator, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, answer });
                     try cards.append(card);
 
-                    std.debug.print("Card: When is {s}'s birthday? -> {s}\n", .{ current_name.?, month_day_full });
+                    std.debug.print("Card: When is {s}'s birthday? -> {s}\n", .{ current_name.?, answer });
                 }
             }
 
