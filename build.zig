@@ -12,6 +12,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.linkFramework("Cocoa");
+    exe.linkFramework("Foundation");
+    exe.linkSystemLibrary("objc");
+
     b.installArtifact(exe);
 
     // Create run step

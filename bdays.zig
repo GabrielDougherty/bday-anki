@@ -1,76 +1,10 @@
 const std = @import("std");
+const c = @cImport({
+    @cInclude("Cocoa/Cocoa.h");
+});
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    // Check for --debug flag
-    const args = try std.process.argsAlloc(arena.allocator());
-    defer std.process.argsFree(arena.allocator(), args);
-
-    var debug_mode = false;
-    for (args) |arg| {
-        if (std.mem.eql(u8, arg, "--debug")) {
-            debug_mode = true;
-            break;
-        }
-    }
-
-    const applescript =
-        \\try
-        \\    tell application "Contacts"
-        \\        delay 1
-        \\        set contactCount to count of people
-        \\        if contactCount = 0 then
-        \\            return "No contacts found or permission denied"
-        \\        end if
-        \\        set contactList to {}
-        \\        repeat with aPerson in people
-        \\            try
-        \\                if birth date of aPerson is not missing value then
-        \\                    set personName to name of aPerson as string
-        \\                    set personBday to birth date of aPerson as string
-        \\                    set end of contactList to personName & ":" & personBday
-        \\                end if
-        \\            end try
-        \\        end repeat
-        \\        return contactList as string
-        \\    end tell
-        \\on error errMsg number errNum
-        \\    return "Error " & errNum & ": " & errMsg
-        \\end try
-    ;
-
-    const argv = [_][]const u8{ "osascript", "-e", applescript };
-    var child = std.process.Child.init(&argv, arena.allocator());
-    child.stdout_behavior = .Pipe;
-    try child.spawn();
-
-    // Read stdout before waiting using buffered approach
-    const stdout = child.stdout.?;
-    var br = std.io.bufferedReaderSize(4096, stdout.reader());
-    var dest_buf: [8192]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&dest_buf);
-
-    // Read all available data
-    br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
-        error.EndOfStream => {}, // This is expected when we reach the end
-        else => return err,
-    };
-
-    const exit_code = try child.wait();
-    if (exit_code == .Exited and exit_code.Exited == 0) {
-        const raw_output = fbs.getWritten();
-        if (debug_mode) {
-            std.debug.print("Raw output: {s}\n\n", .{raw_output});
-        }
-
-        // Parse the birthday data and create Anki cards
-        try createAnkiCards(arena.allocator(), raw_output, debug_mode);
-    } else {
-        std.log.info("Got an error", .{});
-    }
-}
+const arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+defer arena.deinit();
 
 fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8, debug_mode: bool) !void {
     // Split by colons to separate name:birthday pairs
@@ -171,4 +105,111 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8, debug_mod
 
     std.debug.print("\nCreated birthdays.txt with {} cards for Anki import.\n", .{cards.items.len});
     std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n", .{});
+}
+
+fn callback(){
+
+
+    // Check for --debug flag
+    const args = try std.process.argsAlloc(arena.allocator());
+    defer std.process.argsFree(arena.allocator(), args);
+
+    var debug_mode = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--debug")) {
+            debug_mode = true;
+            break;
+        }
+    }
+
+    const applescript =
+        \\try
+        \\    tell application "Contacts"
+        \\        delay 1
+        \\        set contactCount to count of people
+        \\        if contactCount = 0 then
+        \\            return "No contacts found or permission denied"
+        \\        end if
+        \\        set contactList to {}
+        \\        repeat with aPerson in people
+        \\            try
+        \\                if birth date of aPerson is not missing value then
+        \\                    set personName to name of aPerson as string
+        \\                    set personBday to birth date of aPerson as string
+        \\                    set end of contactList to personName & ":" & personBday
+        \\                end if
+        \\            end try
+        \\        end repeat
+        \\        return contactList as string
+        \\    end tell
+        \\on error errMsg number errNum
+        \\    return "Error " & errNum & ": " & errMsg
+        \\end try
+    ;
+
+    const argv = [_][]const u8{ "osascript", "-e", applescript };
+    var child = std.process.Child.init(&argv, arena.allocator());
+    child.stdout_behavior = .Pipe;
+    try child.spawn();
+
+    // Read stdout before waiting using buffered approach
+    const stdout = child.stdout.?;
+    var br = std.io.bufferedReaderSize(4096, stdout.reader());
+    var dest_buf: [8192]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&dest_buf);
+
+    // Read all available data
+    br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
+        error.EndOfStream => {}, // This is expected when we reach the end
+        else => return err,
+    };
+
+    const exit_code = try child.wait();
+    if (exit_code == .Exited and exit_code.Exited == 0) {
+        const raw_output = fbs.getWritten();
+        if (debug_mode) {
+            std.debug.print("Raw output: {s}\n\n", .{raw_output});
+        }
+
+        // Parse the birthday data and create Anki cards
+        try createAnkiCards(arena.allocator(), raw_output, debug_mode);
+    } else {
+        std.log.info("Got an error", .{});
+    }
+}
+
+
+// C-compatible wrapper function
+export fn buttonClicked(_: ?*c.NSButton) void {
+    callback();
+}
+
+pub fn main() !void {
+    _ = c.NSApplicationLoad();
+    const app = c.NSApplication.sharedApplication();
+    
+    // Create window
+    const window = c.NSWindow.alloc().initWithContentRect_styleMask_backing_defer(
+        c.NSMakeRect(100, 100, 400, 300),
+        c.NSWindowStyleMaskTitled | c.NSWindowStyleMaskClosable | c.NSWindowStyleMaskResizable,
+        c.NSBackingStoreBuffered,
+        false
+    );
+    
+    window.setTitle(c.NSString.stringWithUTF8String("Zig Mac App"));
+    
+    // Create button
+    const button = c.NSButton.alloc().initWithFrame(c.NSMakeRect(150, 150, 100, 30));
+    button.setTitle(c.NSString.stringWithUTF8String("Click Me"));
+    button.setBezelStyle(c.NSBezelStyleRounded);
+    
+    // Set target and action
+    button.setTarget(null);
+    button.setAction(@selector("buttonClicked:"));
+    
+    // Add button to window
+    window.contentView().addSubview(button);
+    
+    window.makeKeyAndOrderFront(null);
+    app.run();
 }
