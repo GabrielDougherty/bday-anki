@@ -3,11 +3,10 @@ const std = @import("std");
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    
-    const applescript = 
+
+    const applescript =
         \\try
         \\    tell application "Contacts"
-        \\        activate
         \\        delay 1
         \\        set contactCount to count of people
         \\        if contactCount = 0 then
@@ -29,7 +28,7 @@ pub fn main() !void {
         \\    return "Error " & errNum & ": " & errMsg
         \\end try
     ;
-    
+
     const argv = [_][]const u8{ "osascript", "-e", applescript };
     var child = std.process.Child.init(&argv, arena.allocator());
     child.stdout_behavior = .Pipe;
@@ -40,7 +39,7 @@ pub fn main() !void {
     var br = std.io.bufferedReaderSize(4096, stdout.reader());
     var dest_buf: [8192]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&dest_buf);
-    
+
     // Read all available data
     br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
         error.EndOfStream => {}, // This is expected when we reach the end
