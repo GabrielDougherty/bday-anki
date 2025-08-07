@@ -21,6 +21,8 @@ var global_progress_bar: ?c.id = null;
 var global_status_label: ?c.id = null;
 // Global reference to store the selected output path
 var global_output_path: ?[]const u8 = null;
+// Global reference to the "Open Location" button
+var global_open_location_button: ?c.id = null;
 
 // Objective-C runtime helpers
 fn objc_getClass(name: [*:0]const u8) c.Class {
@@ -315,6 +317,8 @@ fn backgroundCardGeneration() void {
     // Update status label with result
     if (result) |status_message| {
         updateStatusLabel(status_message);
+        // Show the "Open Location" button after successful generation
+        showOpenLocationButton();
         std.debug.print("Card generation completed successfully.\n", .{});
     } else {
         updateStatusLabel("Error: Failed to generate cards. Please check permissions and try again.");
@@ -451,6 +455,77 @@ fn updateStatusLabel(message: []const u8) void {
     
     const main_queue = getMainQueue();
     c.dispatch_async_f(main_queue, context.ptr, updateStatusLabelOnMainThread);
+}
+
+// Function to show the "Open Location" button after generation completes
+fn showOpenLocationButton() void {
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, null, showOpenLocationButtonOnMainThread);
+}
+
+export fn showOpenLocationButtonOnMainThread(context: ?*anyopaque) callconv(.C) void {
+    _ = context; // Unused
+    
+    if (global_open_location_button) |open_button| {
+        std.debug.print("Showing open location button on main thread...\n", .{});
+        
+        // Make the button visible
+        const setHidden_sel = sel_registerName("setHidden:");
+        const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+        _ = hidden_func(open_button, setHidden_sel, false);
+    } else {
+        std.debug.print("Global open location button is null!\n", .{});
+    }
+}
+
+// Function to open the file location in Finder
+fn openFileLocation() void {
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, null, openFileLocationOnMainThread);
+}
+
+export fn openFileLocationOnMainThread(context: ?*anyopaque) callconv(.C) void {
+    _ = context; // Unused
+    
+    std.debug.print("Opening file location in Finder...\n", .{});
+    
+    // Determine the path to open
+    const path_to_open = if (global_output_path) |path|
+        path
+    else blk: {
+        const home_dir = std.posix.getenv("HOME") orelse "/tmp";
+        break :blk home_dir;
+    };
+    
+    // Create NSWorkspace and open the directory
+    const NSWorkspace = objc_getClass("NSWorkspace");
+    const sharedWorkspace_sel = sel_registerName("sharedWorkspace");
+    const workspace = objc_msgSend(NSWorkspace, sharedWorkspace_sel);
+    
+    // Create NSURL for the directory
+    const NSURL = objc_getClass("NSURL");
+    const fileURLWithPath_sel = sel_registerName("fileURLWithPath:");
+    
+    // Create null-terminated path
+    const path_z = allocator.dupeZ(u8, path_to_open) catch {
+        std.debug.print("Failed to create null-terminated path\n", .{});
+        return;
+    };
+    defer allocator.free(path_z);
+    
+    const path_nsstring = createNSString(path_z.ptr);
+    const directory_url = objc_msgSend_id(NSURL, fileURLWithPath_sel, path_nsstring);
+    
+    // Open the directory in Finder
+    const openURL_sel = sel_registerName("openURL:");
+    const success_func = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) bool, @ptrCast(&c.objc_msgSend));
+    const success = success_func(workspace, openURL_sel, directory_url);
+    
+    if (success) {
+        std.debug.print("Successfully opened directory: {s}\n", .{path_to_open});
+    } else {
+        std.debug.print("Failed to open directory: {s}\n", .{path_to_open});
+    }
 }
 
 // Functions that actually update the UI (must run on main thread)
@@ -628,6 +703,17 @@ fn createCustomResponder() c.id {
         std.debug.print("Failed to add chooseLocation method to custom class\n", .{});
     }
     
+    // Add method for opening file location
+    const openLocation_sel = sel_registerName("openLocation:");
+    const open_method_impl = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) void, @ptrCast(&openLocationImpl));
+    
+    const success3 = c.class_addMethod(CustomResponder, openLocation_sel, 
+        @as(c.IMP, @ptrCast(open_method_impl)), "v@:@");
+    
+    if (!success3) {
+        std.debug.print("Failed to add openLocation method to custom class\n", .{});
+    }
+    
     // Register the class
     c.objc_registerClassPair(CustomResponder);
     
@@ -667,6 +753,17 @@ export fn chooseLocationImpl(self: c.id, _cmd: c.SEL, sender: c.id) void {
     
     // Show the save panel
     showSavePanel();
+}
+
+// Implementation function for opening file location
+export fn openLocationImpl(self: c.id, _cmd: c.SEL, sender: c.id) void {
+    _ = self;
+    _ = _cmd; 
+    _ = sender;
+    std.debug.print("Custom responder openLocation called!\n", .{});
+    
+    // Open the file location
+    openFileLocation();
 }
 
 pub fn main() !void {
@@ -742,6 +839,22 @@ pub fn main() !void {
     _ = bezel_func(location_button, setBezelStyle_sel, NSBezelStyleRounded);
     
     std.debug.print("Created location selection button...\n", .{});
+    
+    // Create "Open Location" button (initially hidden)
+    const open_button_alloc = objc_msgSend(NSButton, alloc_sel);
+    const open_button_rect = NSMakeRect(200, 250, 120, 40); // Above the generate button
+    const open_button_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const open_location_button = open_button_func(open_button_alloc, initWithFrame_sel, open_button_rect);
+    
+    // Set open location button title
+    const open_button_title = createNSString("Open Location");
+    _ = objc_msgSend_id(open_location_button, setTitle_sel, open_button_title);
+    _ = bezel_func(open_location_button, setBezelStyle_sel, NSBezelStyleRounded);
+    
+    std.debug.print("Created open location button (hidden until generation completes)...\n", .{});
+    
+    // Store global reference for background thread access
+    global_open_location_button = open_location_button;
     
     // Instead of trying to get the button action to work immediately,
     // let's add a label that shows instructions
@@ -828,7 +941,12 @@ pub fn main() !void {
     const chooseLocation_action_sel = sel_registerName("chooseLocation:");
     _ = objc_msgSend_ptr(location_button, setAction_sel, @ptrCast(chooseLocation_action_sel));
     
-    std.debug.print("Connected buttons to custom responder...\n", .{});
+    // Connect open location button to our custom responder
+    _ = objc_msgSend_id(open_location_button, setTarget_sel, responder);
+    const openLocation_action_sel = sel_registerName("openLocation:");
+    _ = objc_msgSend_ptr(open_location_button, setAction_sel, @ptrCast(openLocation_action_sel));
+    
+    std.debug.print("Connected all buttons to custom responder...\n", .{});
     
     // Set the window to release when closed, which will terminate the app
     const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
@@ -846,8 +964,12 @@ pub fn main() !void {
     _ = objc_msgSend_id(content_view, addSubview_sel, label);
     _ = objc_msgSend_id(content_view, addSubview_sel, progress_bar);
     _ = objc_msgSend_id(content_view, addSubview_sel, status_label);
+    _ = objc_msgSend_id(content_view, addSubview_sel, open_location_button);
     
-    std.debug.print("Added buttons, label, progress bar, and status label to window...\n", .{});
+    // Hide open location button initially (reuse existing hidden_func)
+    _ = hidden_func(open_location_button, setHidden_sel, true);
+    
+    std.debug.print("Added all buttons, label, progress bar, and status label to window...\n", .{});
     
     // Make sure the app is active and window is visible
     const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
