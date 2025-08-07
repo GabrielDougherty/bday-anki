@@ -1,13 +1,15 @@
 #!/bin/zsh
 
+set -euo pipefail
+
 echo -n 'What version? '
 read VERSION
 
 echo "got version $VERSION"
 sed -i '' "s/<string>1\.0<\/string>/<string>$VERSION<\/string>/g" AnkiBirthdays.app/Contents/Info.plist
-exit
 zig build
-cp zig-out/bin/bdays AnkiBirthdays.app/MacOS
+cp zig-out/bin/bdays AnkiBirthdays.app/Contents/MacOS
+exit
 create-dmg \
     --volname "Anki Birthdays Installer" \
     --window-pos 200 120 \

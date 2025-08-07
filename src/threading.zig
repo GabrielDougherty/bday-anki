@@ -1,5 +1,6 @@
 const std = @import("std");
 const objc_helpers = @import("objc_helpers.zig");
+const main = @import("../main.zig");
 
 // Global references for UI updates
 pub var global_progress_bar: ?objc_helpers.objc.id = null;
@@ -168,10 +169,8 @@ export fn setProgressValueOnMainThread(context_ptr: ?*anyopaque) callconv(.C) vo
         const value = context.value;
         const max_value = context.max_value;
         
-        // Free the context using a page allocator
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const allocator = gpa.allocator();
-        allocator.destroy(context);
+        // Free the context using the shared allocator
+        main.allocator.destroy(context);
         
         if (global_progress_bar) |progress_bar| {
             // Switch to determinate mode if needed
