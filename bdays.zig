@@ -113,13 +113,12 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8) !void {
                     // Extract year (after second comma)
                     const after_second_comma = after_first_comma[second_comma_idx + 1..];
                     var year_part: []const u8 = "";
-                    if (std.mem.indexOf(u8, after_second_comma, " ")) |space_idx| {
+                    
+                    // Look for " at" to find where the year ends
+                    if (std.mem.indexOf(u8, after_second_comma, " at")) |at_idx| {
+                        year_part = std.mem.trim(u8, after_second_comma[0..at_idx], " \t\n\r");
+                    } else if (std.mem.indexOf(u8, after_second_comma, " ")) |space_idx| {
                         year_part = std.mem.trim(u8, after_second_comma[0..space_idx], " \t\n\r");
-                    } else {
-                        // If no space found, take everything up to "at" if it exists
-                        if (std.mem.indexOf(u8, after_second_comma, " at")) |at_idx| {
-                            year_part = std.mem.trim(u8, after_second_comma[0..at_idx], " \t\n\r");
-                        }
                     }
                     
                     std.debug.print("Debug - year_part: '{s}'\n", .{year_part});
