@@ -17,6 +17,8 @@ const allocator = gpa.allocator();
 
 // Global reference to progress bar for updating from background thread
 var global_progress_bar: ?c.id = null;
+// Global reference to status label for updating from background thread
+var global_status_label: ?c.id = null;
 
 // Objective-C runtime helpers
 fn objc_getClass(name: [*:0]const u8) c.Class {
@@ -77,7 +79,7 @@ fn NSMakeRect(x: f64, y: f64, w: f64, h: f64) NSRect {
     };
 }
 
-fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: bool) !void {
+fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: bool) ![]const u8 {
     // Split by colons to separate name:birthday pairs
     var it = std.mem.splitScalar(u8, raw_data, ':');
 
@@ -191,13 +193,17 @@ fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: b
         try file.writeAll(card);
     }
 
+    const status_message = try std.fmt.allocPrint(alloc, "Created birthdays.txt with {} cards for Anki import.\nIn Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab", .{cards.items.len});
+    
     std.debug.print("\nCreated birthdays.txt with {} cards for Anki import.\n", .{cards.items.len});
     std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n", .{});
+    
+    return status_message;
 }
 
-fn callback() void {
+fn callback() ?[]const u8 {
     // Check for --debug flag
-    const args = std.process.argsAlloc(allocator) catch return;
+    const args = std.process.argsAlloc(allocator) catch return null;
     defer std.process.argsFree(allocator, args);
 
     var debug_mode = false;
@@ -236,7 +242,7 @@ fn callback() void {
     const argv = [_][]const u8{ "osascript", "-e", applescript };
     var child = std.process.Child.init(&argv, allocator);
     child.stdout_behavior = .Pipe;
-    child.spawn() catch return;
+    child.spawn() catch return null;
 
     // Read stdout before waiting using buffered approach
     const stdout = child.stdout.?;
@@ -247,10 +253,10 @@ fn callback() void {
     // Read all available data
     br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
         error.EndOfStream => {}, // This is expected when we reach the end
-        else => return,
+        else => return null,
     };
 
-    const exit_code = child.wait() catch return;
+    const exit_code = child.wait() catch return null;
     if (exit_code == .Exited and exit_code.Exited == 0) {
         const raw_output = fbs.getWritten();
         if (debug_mode) {
@@ -258,9 +264,10 @@ fn callback() void {
         }
 
         // Parse the birthday data and create Anki cards
-        createAnkiCards(allocator, raw_output, debug_mode) catch return;
+        return createAnkiCards(allocator, raw_output, debug_mode) catch null;
     } else {
         std.log.info("Got an error", .{});
+        return null;
     }
 }
 
@@ -289,12 +296,19 @@ fn backgroundCardGeneration() void {
     showProgressBar();
     
     // Run the card generation
-    callback();
+    const result = callback();
     
     // Hide progress bar when done
     hideProgressBar();
     
-    std.debug.print("Card generation completed.\n", .{});
+    // Update status label with result
+    if (result) |status_message| {
+        updateStatusLabel(status_message);
+        std.debug.print("Card generation completed successfully.\n", .{});
+    } else {
+        updateStatusLabel("Error: Failed to generate cards. Please check permissions and try again.");
+        std.debug.print("Card generation failed.\n", .{});
+    }
 }
 
 // Window delegate to handle window closing
@@ -321,6 +335,18 @@ fn showProgressBar() void {
 fn hideProgressBar() void {
     const main_queue = getMainQueue();
     c.dispatch_async_f(main_queue, null, hideProgressBarOnMainThread);
+}
+
+// Status label update function (dispatch to main thread)
+fn updateStatusLabel(message: []const u8) void {
+    // Allocate context on heap and store the message
+    const context = allocator.dupe(u8, message) catch {
+        std.debug.print("Failed to allocate context for status update\n", .{});
+        return;
+    };
+    
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, context.ptr, updateStatusLabelOnMainThread);
 }
 
 // Functions that actually update the UI (must run on main thread)
@@ -361,6 +387,48 @@ export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
         std.debug.print("Stopped and hid progress bar on main thread\n", .{});
     } else {
         std.debug.print("Global progress bar is null!\n", .{});
+    }
+}
+
+export fn updateStatusLabelOnMainThread(message_ptr: ?*anyopaque) callconv(.C) void {
+    if (message_ptr) |ptr| {
+        // Convert back to proper slice using the allocated memory
+        const message_bytes = @as([*]u8, @ptrCast(ptr));
+        
+        // We need to find the length - for now assume it's null-terminated
+        var len: usize = 0;
+        while (message_bytes[len] != 0) {
+            len += 1;
+        }
+        const message = message_bytes[0..len];
+        
+        if (global_status_label) |status_label| {
+            std.debug.print("Updating status label on main thread: {s}\n", .{message});
+            
+            // Create NSString from message
+            const null_terminated = allocator.dupeZ(u8, message) catch {
+                std.debug.print("Failed to create null-terminated string\n", .{});
+                return;
+            };
+            defer allocator.free(null_terminated);
+            
+            const status_string = createNSString(null_terminated.ptr);
+            
+            // Update the label text
+            const setStringValue_sel = sel_registerName("setStringValue:");
+            _ = objc_msgSend_id(status_label, setStringValue_sel, status_string);
+            
+            // Make the label visible
+            const setHidden_sel = sel_registerName("setHidden:");
+            const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+            _ = hidden_func(status_label, setHidden_sel, false);
+            
+        } else {
+            std.debug.print("Global status label is null!\n", .{});
+        }
+        
+        // Free the allocated message
+        allocator.free(message);
     }
 }
 
@@ -560,6 +628,25 @@ pub fn main() !void {
     
     std.debug.print("Created instruction label...\n", .{});
     
+    // Create status label (initially hidden)
+    const status_label_alloc = objc_msgSend(NSTextField, alloc_sel);
+    const status_label_rect = NSMakeRect(50, 40, 400, 50); // Below the instruction label
+    const status_label_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const status_label = status_label_func(status_label_alloc, initWithFrame_label_sel, status_label_rect);
+    
+    // Set status label properties
+    const empty_status = createNSString("");
+    _ = objc_msgSend_id(status_label, setStringValue_sel, empty_status);
+    _ = bezeled_func(status_label, setBezeled_sel, false);
+    _ = editable_func(status_label, setEditable_sel, false);
+    
+    // Note: We'll set hidden status later using the same selector as progress bar
+    
+    std.debug.print("Created status label (hidden until generation completes)...\n", .{});
+    
+    // Store global reference for background thread access
+    global_status_label = status_label;
+    
     // Create progress bar
     const NSProgressIndicator = objc_getClass("NSProgressIndicator");
     const progress_alloc = objc_msgSend(NSProgressIndicator, alloc_sel);
@@ -579,6 +666,7 @@ pub fn main() !void {
     const setHidden_sel = sel_registerName("setHidden:");
     const hidden_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
     _ = hidden_func(progress_bar, setHidden_sel, true); // Start hidden
+    _ = hidden_func(status_label, setHidden_sel, true); // Start hidden
     
     std.debug.print("Created progress bar (hidden until generation starts)...\n", .{});
     
@@ -612,8 +700,9 @@ pub fn main() !void {
     _ = objc_msgSend_id(content_view, addSubview_sel, button);
     _ = objc_msgSend_id(content_view, addSubview_sel, label);
     _ = objc_msgSend_id(content_view, addSubview_sel, progress_bar);
+    _ = objc_msgSend_id(content_view, addSubview_sel, status_label);
     
-    std.debug.print("Added button, label, and progress bar to window...\n", .{});
+    std.debug.print("Added button, label, progress bar, and status label to window...\n", .{});
     
     // Make sure the app is active and window is visible
     const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
