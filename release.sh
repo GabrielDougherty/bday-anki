@@ -8,8 +8,7 @@ read VERSION
 echo "got version $VERSION"
 sed -i '' "s/<string>1\.0<\/string>/<string>$VERSION<\/string>/g" AnkiBirthdays.app/Contents/Info.plist
 zig build
-cp zig-out/bin/bdays AnkiBirthdays.app/Contents/MacOS
-exit
+cp zig-out/bin/bdays AnkiBirthdays.app/Contents/MacOS/bdays
 create-dmg \
     --volname "Anki Birthdays Installer" \
     --window-pos 200 120 \
