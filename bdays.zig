@@ -288,16 +288,43 @@ fn createNSString(text: [*:0]const u8) c.id {
 
 // Create a simple target object that can respond to button clicks
 fn createButtonTarget() c.id {
-    // Create a basic NSObject to serve as the button target
-    const NSObject = objc_getClass("NSObject");
-    const alloc_sel = sel_registerName("alloc");
-    const init_sel = sel_registerName("init");
+    // For simplicity, we'll use the app delegate as our target
+    // since we have our buttonClicked function available globally
+    const NSApplication = objc_getClass("NSApplication");
+    const sharedApplication_sel = sel_registerName("sharedApplication");
+    const app = objc_msgSend(NSApplication, sharedApplication_sel);
     
-    const target_alloc = objc_msgSend(NSObject, alloc_sel);
-    const target = objc_msgSend(target_alloc, init_sel);
+    const delegate_sel = sel_registerName("delegate");
+    var delegate = objc_msgSend(app, delegate_sel);
     
-    // We'll need to swizzle the method, but for now let's use a simpler approach
-    return target;
+    // If no delegate exists, use the app itself as target
+    if (delegate == null) {
+        delegate = app;
+    }
+    
+    return delegate;
+}
+
+// Create menu responder
+fn createMenuResponder() c.id {
+    const NSApplication = objc_getClass("NSApplication");
+    const sharedApplication_sel = sel_registerName("sharedApplication");
+    return objc_msgSend(NSApplication, sharedApplication_sel);
+}
+
+// Export function that will be called by menu
+export fn generateCards(sender: c.id) void {
+    _ = sender;
+    std.debug.print("Generate Cards menu item clicked!\n", .{});
+    
+    // Create a background thread to run the card generation
+    const thread = std.Thread.spawn(.{}, backgroundCardGeneration, .{}) catch |err| {
+        std.debug.print("Failed to create background thread: {}\n", .{err});
+        return;
+    };
+    
+    // Detach the thread so it cleans up automatically
+    thread.detach();
 }
 
 pub fn main() !void {
@@ -372,7 +399,7 @@ pub fn main() !void {
     
     // Set label properties
     const setStringValue_sel = sel_registerName("setStringValue:");
-    const instructions = createNSString("Your birthday card generator is working!\nCheck the terminal - it just generated birthdays.txt\nPress Cmd+Q to quit");
+    const instructions = createNSString("Use the menu: Birthday Generator > Generate Birthday Cards (Cmd+G)\nOr press Cmd+Q to quit the application.");
     _ = objc_msgSend_id(label, setStringValue_sel, instructions);
     
     const setBezeled_sel = sel_registerName("setBezeled:");
@@ -385,12 +412,10 @@ pub fn main() !void {
     
     std.debug.print("Created instruction label...\n", .{});
     
-    // Run the card generation in background immediately when app starts
-    const thread = std.Thread.spawn(.{}, backgroundCardGeneration, .{}) catch |err| {
-        std.debug.print("Failed to create background thread: {}\n", .{err});
-        return;
-    };
-    thread.detach();
+    // For now, let's make the app work differently:
+    // The button will be visible but we'll add a menu item that works
+    // And we'll provide instructions for the user
+    std.debug.print("Button created - we'll add a working menu item...\n", .{});
     
     // Set the window to release when closed, which will terminate the app
     const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
@@ -419,30 +444,72 @@ pub fn main() !void {
     
     std.debug.print("Window should now be visible!\n", .{});
     
-    // Set up a simple menu with Quit option and our action
+    // Set up a proper menu bar with Quit functionality
     const NSMenu = objc_getClass("NSMenu");
+    const NSMenuItem = objc_getClass("NSMenuItem");
     const menu_alloc = objc_msgSend(NSMenu, alloc_sel);
     const init_sel = sel_registerName("init");
     const main_menu = objc_msgSend(menu_alloc, init_sel);
     
-    // Create an app menu item that can trigger our action
-    const NSMenuItem = objc_getClass("NSMenuItem");
-    const menu_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
-    const menu_item = objc_msgSend(menu_item_alloc, init_sel);
+    // Create App menu
+    const app_menu_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
+    const app_menu_item = objc_msgSend(app_menu_item_alloc, init_sel);
     
-    const item_title = createNSString("Generate Cards (Cmd+G)");
-    const setTitle_item_sel = sel_registerName("setTitle:");
-    _ = objc_msgSend_id(menu_item, setTitle_item_sel, item_title);
+    const app_submenu_alloc = objc_msgSend(NSMenu, alloc_sel);
+    const app_submenu = objc_msgSend(app_submenu_alloc, init_sel);
     
-    // Add the menu item to the menu
+    // Create Generate Cards menu item
+    const generate_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
+    const initWithTitle_sel = sel_registerName("initWithTitle:action:keyEquivalent:");
+    const generate_title = createNSString("Generate Birthday Cards");
+    const generate_action_sel = sel_registerName("generateCards:");
+    const cmd_g = createNSString("g");
+    
+    const generate_func = @as(*const fn (c.id, c.SEL, c.id, c.SEL, c.id) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const generate_item = generate_func(generate_item_alloc, initWithTitle_sel, generate_title, generate_action_sel, cmd_g);
+    
+    // Create a simple responder for the menu action
+    const responder = createMenuResponder();
+    const setTarget_gen_sel = sel_registerName("setTarget:");
+    _ = objc_msgSend_id(generate_item, setTarget_gen_sel, responder);
+    
+    // Add generate item to app submenu
     const addItem_sel = sel_registerName("addItem:");
-    _ = objc_msgSend_id(main_menu, addItem_sel, menu_item);
+    _ = objc_msgSend_id(app_submenu, addItem_sel, generate_item);
     
+    // Add separator
+    const separatorItem_sel = sel_registerName("separatorItem");
+    const separator = objc_msgSend(NSMenuItem, separatorItem_sel);
+    _ = objc_msgSend_id(app_submenu, addItem_sel, separator);
+    
+    // Create Quit menu item with Cmd+Q
+    const quit_item_alloc = objc_msgSend(NSMenuItem, alloc_sel);
+    const quit_title = createNSString("Quit Birthday Generator");
+    const terminate_sel = sel_registerName("terminate:");
+    const cmd_q = createNSString("q");
+    
+    const quit_func = @as(*const fn (c.id, c.SEL, c.id, c.SEL, c.id) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const quit_item = quit_func(quit_item_alloc, initWithTitle_sel, quit_title, terminate_sel, cmd_q);
+    
+    // Set the target for quit to be the application
+    const setTarget_quit_sel = sel_registerName("setTarget:");
+    _ = objc_msgSend_id(quit_item, setTarget_quit_sel, app);
+    
+    // Add quit item to app submenu
+    _ = objc_msgSend_id(app_submenu, addItem_sel, quit_item);
+    
+    // Set the submenu
+    const setSubmenu_sel = sel_registerName("setSubmenu:");
+    _ = objc_msgSend_id(app_menu_item, setSubmenu_sel, app_submenu);
+    
+    // Add app menu item to main menu
+    _ = objc_msgSend_id(main_menu, addItem_sel, app_menu_item);
+    
+    // Set main menu
     const setMainMenu_sel = sel_registerName("setMainMenu:");
     _ = objc_msgSend_id(app, setMainMenu_sel, main_menu);
     
-    // Add a simple way to quit: Cmd+Q will work by default
-    std.debug.print("Set up basic menu with Generate Cards option...\n", .{});
+    std.debug.print("Set up proper menu bar with Cmd+Q quit and Cmd+G generate functionality...\n", .{});
     
     // Run the application
     const run_sel = sel_registerName("run");
