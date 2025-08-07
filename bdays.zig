@@ -19,6 +19,8 @@ const allocator = gpa.allocator();
 var global_progress_bar: ?c.id = null;
 // Global reference to status label for updating from background thread
 var global_status_label: ?c.id = null;
+// Global reference to store the selected output path
+var global_output_path: ?[]const u8 = null;
 
 // Objective-C runtime helpers
 fn objc_getClass(name: [*:0]const u8) c.Class {
@@ -186,17 +188,26 @@ fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: b
     }
 
     // Write to TSV file for Anki import
-    const file = try std.fs.cwd().createFile("birthdays.txt", .{});
+    const output_path = if (global_output_path) |path| 
+        try std.fmt.allocPrint(alloc, "{s}/birthdays.txt", .{path})
+    else blk: {
+        // Default to ~/Downloads
+        const home_dir = std.posix.getenv("HOME") orelse "/tmp";
+        break :blk try std.fmt.allocPrint(alloc, "{s}/Downloads/birthdays.txt", .{home_dir});
+    };
+    defer alloc.free(output_path);
+    
+    const file = try std.fs.cwd().createFile(output_path, .{});
     defer file.close();
 
     for (cards.items) |card| {
         try file.writeAll(card);
     }
 
-    const status_message = try std.fmt.allocPrint(alloc, "Created birthdays.txt with {} cards for Anki import.\nIn Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab", .{cards.items.len});
+    const status_message = try std.fmt.allocPrint(alloc, "Created {s} with {} cards for Anki import.\nIn Anki: File -> Import -> Select the file -> Set field separator to Tab", .{output_path, cards.items.len});
     
-    std.debug.print("\nCreated birthdays.txt with {} cards for Anki import.\n", .{cards.items.len});
-    std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n", .{});
+    std.debug.print("\nCreated {s} with {} cards for Anki import.\n", .{output_path, cards.items.len});
+    std.debug.print("In Anki: File -> Import -> Select the file -> Set field separator to Tab\n", .{});
     
     return status_message;
 }
@@ -324,6 +335,99 @@ export fn windowShouldClose(_: c.id, _: c.SEL) bool {
     _ = objc_msgSend_id(app, terminate_sel, null);
     
     return true;
+}
+
+// Function to show save panel dialog
+fn showSavePanel() void {
+    const main_queue = getMainQueue();
+    c.dispatch_async_f(main_queue, null, showSavePanelOnMainThread);
+}
+
+export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.C) void {
+    _ = context; // Unused
+    
+    std.debug.print("Showing save panel on main thread...\n", .{});
+    
+    // Create NSSavePanel
+    const NSSavePanel = objc_getClass("NSSavePanel");
+    const savePanel_sel = sel_registerName("savePanel");
+    const save_panel = objc_msgSend(NSSavePanel, savePanel_sel);
+    
+    // Set default filename
+    const setNameFieldStringValue_sel = sel_registerName("setNameFieldStringValue:");
+    const default_name = createNSString("birthdays.txt");
+    _ = objc_msgSend_id(save_panel, setNameFieldStringValue_sel, default_name);
+    
+    // Set title
+    const setTitle_sel = sel_registerName("setTitle:");
+    const title = createNSString("Save Birthday Cards");
+    _ = objc_msgSend_id(save_panel, setTitle_sel, title);
+    
+    // Set message
+    const setMessage_sel = sel_registerName("setMessage:");
+    const message = createNSString("Choose where to save the birthday cards file:");
+    _ = objc_msgSend_id(save_panel, setMessage_sel, message);
+    
+    // Set default directory to Downloads
+    const home_dir = std.posix.getenv("HOME") orelse "/tmp";
+    const downloads_path = std.fmt.allocPrint(allocator, "{s}/Downloads", .{home_dir}) catch {
+        std.debug.print("Failed to create downloads path\n", .{});
+        return;
+    };
+    defer allocator.free(downloads_path);
+    
+    const downloads_path_z = allocator.dupeZ(u8, downloads_path) catch {
+        std.debug.print("Failed to create null-terminated downloads path\n", .{});
+        return;
+    };
+    defer allocator.free(downloads_path_z);
+    
+    const NSURL = objc_getClass("NSURL");
+    const fileURLWithPath_sel = sel_registerName("fileURLWithPath:");
+    const downloads_nsstring = createNSString(downloads_path_z.ptr);
+    const downloads_url = objc_msgSend_id(NSURL, fileURLWithPath_sel, downloads_nsstring);
+    
+    const setDirectoryURL_sel = sel_registerName("setDirectoryURL:");
+    _ = objc_msgSend_id(save_panel, setDirectoryURL_sel, downloads_url);
+    
+    // Run the panel modally
+    const runModal_sel = sel_registerName("runModal");
+    const response_func = @as(*const fn (c.id, c.SEL) callconv(.C) c_long, @ptrCast(&c.objc_msgSend));
+    const response = response_func(save_panel, runModal_sel);
+    
+    // NSModalResponseOK = 1
+    if (response == 1) {
+        // Get the selected URL
+        const URL_sel = sel_registerName("URL");
+        const selected_url = objc_msgSend(save_panel, URL_sel);
+        
+        if (selected_url != null) {
+            // Get the path from URL
+            const path_sel = sel_registerName("path");
+            const path_nsstring = objc_msgSend(selected_url, path_sel);
+            
+            // Convert NSString to C string
+            const UTF8String_sel = sel_registerName("UTF8String");
+            const path_cstring_func = @as(*const fn (c.id, c.SEL) callconv(.C) [*:0]const u8, @ptrCast(&c.objc_msgSend));
+            const path_cstring = path_cstring_func(path_nsstring, UTF8String_sel);
+            
+            // Get just the directory part (remove filename)
+            const full_path = std.mem.span(path_cstring);
+            if (std.fs.path.dirname(full_path)) |dir_path| {
+                // Store the directory path globally
+                if (global_output_path) |old_path| {
+                    allocator.free(old_path);
+                }
+                global_output_path = allocator.dupe(u8, dir_path) catch {
+                    std.debug.print("Failed to store output path\n", .{});
+                    return;
+                };
+                std.debug.print("Selected output directory: {s}\n", .{global_output_path.?});
+            }
+        }
+    } else {
+        std.debug.print("Save panel was cancelled\n", .{});
+    }
 }
 
 // Progress bar control functions (dispatch to main thread)
@@ -502,15 +606,26 @@ fn createCustomResponder() c.id {
     // Create a new class that inherits from NSObject
     const CustomResponder = c.objc_allocateClassPair(NSObject, "CustomResponder", 0);
     
-    // Add our method to the class
+    // Add our method to the class for generating cards
     const generateCards_sel = sel_registerName("generateCards:");
     const method_impl = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) void, @ptrCast(&generateCardsImpl));
     
-    const success = c.class_addMethod(CustomResponder, generateCards_sel, 
+    const success1 = c.class_addMethod(CustomResponder, generateCards_sel, 
         @as(c.IMP, @ptrCast(method_impl)), "v@:@");
     
-    if (!success) {
-        std.debug.print("Failed to add method to custom class\n", .{});
+    if (!success1) {
+        std.debug.print("Failed to add generateCards method to custom class\n", .{});
+    }
+    
+    // Add method for choosing location
+    const chooseLocation_sel = sel_registerName("chooseLocation:");
+    const location_method_impl = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) void, @ptrCast(&chooseLocationImpl));
+    
+    const success2 = c.class_addMethod(CustomResponder, chooseLocation_sel, 
+        @as(c.IMP, @ptrCast(location_method_impl)), "v@:@");
+    
+    if (!success2) {
+        std.debug.print("Failed to add chooseLocation method to custom class\n", .{});
     }
     
     // Register the class
@@ -541,6 +656,17 @@ export fn generateCardsImpl(self: c.id, _cmd: c.SEL, sender: c.id) void {
     
     // Detach the thread so it cleans up automatically
     thread.detach();
+}
+
+// Implementation function for location selection
+export fn chooseLocationImpl(self: c.id, _cmd: c.SEL, sender: c.id) void {
+    _ = self;
+    _ = _cmd; 
+    _ = sender;
+    std.debug.print("Custom responder chooseLocation called!\n", .{});
+    
+    // Show the save panel
+    showSavePanel();
 }
 
 pub fn main() !void {
@@ -604,6 +730,19 @@ pub fn main() !void {
     
     std.debug.print("Created and configured button...\n", .{});
     
+    // Create "Choose Location" button
+    const location_button_alloc = objc_msgSend(NSButton, alloc_sel);
+    const location_button_rect = NSMakeRect(330, 200, 120, 40); // To the right of generate button
+    const location_button_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const location_button = location_button_func(location_button_alloc, initWithFrame_sel, location_button_rect);
+    
+    // Set location button title
+    const location_button_title = createNSString("Choose Location");
+    _ = objc_msgSend_id(location_button, setTitle_sel, location_button_title);
+    _ = bezel_func(location_button, setBezelStyle_sel, NSBezelStyleRounded);
+    
+    std.debug.print("Created location selection button...\n", .{});
+    
     // Instead of trying to get the button action to work immediately,
     // let's add a label that shows instructions
     const NSTextField = objc_getClass("NSTextField");
@@ -615,7 +754,7 @@ pub fn main() !void {
     
     // Set label properties
     const setStringValue_sel = sel_registerName("setStringValue:");
-    const instructions = createNSString("Click the 'Generate Cards' button or press Cmd+G\nPress Cmd+Q to quit the application.");
+    const instructions = createNSString("Click 'Generate Cards' or press Cmd+G to create cards\nClick 'Choose Location' to select where to save (default: ~/Downloads)\nPress Cmd+Q to quit the application.");
     _ = objc_msgSend_id(label, setStringValue_sel, instructions);
     
     const setBezeled_sel = sel_registerName("setBezeled:");
@@ -684,7 +823,12 @@ pub fn main() !void {
     const generateCards_action_sel = sel_registerName("generateCards:");
     _ = objc_msgSend_ptr(button, setAction_sel, @ptrCast(generateCards_action_sel));
     
-    std.debug.print("Connected button to custom responder...\n", .{});
+    // Connect location button to our custom responder
+    _ = objc_msgSend_id(location_button, setTarget_sel, responder);
+    const chooseLocation_action_sel = sel_registerName("chooseLocation:");
+    _ = objc_msgSend_ptr(location_button, setAction_sel, @ptrCast(chooseLocation_action_sel));
+    
+    std.debug.print("Connected buttons to custom responder...\n", .{});
     
     // Set the window to release when closed, which will terminate the app
     const setReleasedWhenClosed_sel = sel_registerName("setReleasedWhenClosed:");
@@ -698,11 +842,12 @@ pub fn main() !void {
     const content_view = objc_msgSend(window, contentView_sel);
     const addSubview_sel = sel_registerName("addSubview:");
     _ = objc_msgSend_id(content_view, addSubview_sel, button);
+    _ = objc_msgSend_id(content_view, addSubview_sel, location_button);
     _ = objc_msgSend_id(content_view, addSubview_sel, label);
     _ = objc_msgSend_id(content_view, addSubview_sel, progress_bar);
     _ = objc_msgSend_id(content_view, addSubview_sel, status_label);
     
-    std.debug.print("Added button, label, progress bar, and status label to window...\n", .{});
+    std.debug.print("Added buttons, label, progress bar, and status label to window...\n", .{});
     
     // Make sure the app is active and window is visible
     const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
