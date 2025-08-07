@@ -1,5 +1,7 @@
 # Birthday Card Generator for Anki
 
+![Cake image](./AnkiBirthdays.iconset/icon_256x256.png "Cake image")
+
 A macOS application that generates Anki flashcards from the birthdays in your Apple Contacts. The app creates a tab-separated values (TSV) file that can be imported directly into Anki to help you remember your friends' and family's birthdays.
 
 ## Features
