@@ -1,16 +1,78 @@
 const std = @import("std");
 const c = @cImport({
-    @cInclude("Cocoa/Cocoa.h");
+    @cInclude("objc/objc.h");
+    @cInclude("objc/runtime.h");
+    @cInclude("objc/message.h");
+    @cDefine("OBJC_OLD_DISPATCH_PROTOTYPES", "0");
 });
 
-const arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-defer arena.deinit();
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
-fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8, debug_mode: bool) !void {
+// Objective-C runtime helpers
+fn objc_getClass(name: [*:0]const u8) c.Class {
+    return @as(c.Class, @ptrCast(c.objc_getClass(name)));
+}
+
+fn sel_registerName(name: [*:0]const u8) c.SEL {
+    return @as(c.SEL, @ptrCast(c.sel_registerName(name)));
+}
+
+fn objc_msgSend(target: anytype, sel: c.SEL) c.id {
+    const func = @as(*const fn (c.id, c.SEL) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    return func(@as(c.id, @alignCast(@ptrCast(target))), sel);
+}
+
+fn objc_msgSend_stret(target: anytype, sel: c.SEL, comptime RetType: type) RetType {
+    const func = @as(*const fn (c.id, c.SEL) callconv(.C) RetType, @ptrCast(&c.objc_msgSend));
+    return func(@as(c.id, @alignCast(@ptrCast(target))), sel);
+}
+
+fn objc_msgSend_id(target: anytype, sel: c.SEL, arg: c.id) c.id {
+    const func = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    return func(@as(c.id, @alignCast(@ptrCast(target))), sel, arg);
+}
+
+fn objc_msgSend_ptr(target: anytype, sel: c.SEL, arg: ?*const anyopaque) c.id {
+    const func = @as(*const fn (c.id, c.SEL, ?*const anyopaque) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    return func(@as(c.id, @alignCast(@ptrCast(target))), sel, arg);
+}
+
+// Cocoa constants
+const NSWindowStyleMaskTitled: c_ulong = 1 << 0;
+const NSWindowStyleMaskClosable: c_ulong = 1 << 1;
+const NSWindowStyleMaskResizable: c_ulong = 1 << 3;
+const NSBackingStoreBuffered: c_ulong = 2;
+const NSBezelStyleRounded: c_ulong = 1;
+
+// NSRect structure
+const NSRect = extern struct {
+    origin: NSPoint,
+    size: NSSize,
+};
+
+const NSPoint = extern struct {
+    x: f64,
+    y: f64,
+};
+
+const NSSize = extern struct {
+    width: f64,
+    height: f64,
+};
+
+fn NSMakeRect(x: f64, y: f64, w: f64, h: f64) NSRect {
+    return NSRect{
+        .origin = NSPoint{ .x = x, .y = y },
+        .size = NSSize{ .width = w, .height = h },
+    };
+}
+
+fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mode: bool) !void {
     // Split by colons to separate name:birthday pairs
     var it = std.mem.splitScalar(u8, raw_data, ':');
 
-    var cards = std.ArrayList([]const u8).init(allocator);
+    var cards = std.ArrayList([]const u8).init(alloc);
     defer cards.deinit();
 
     var current_name: ?[]const u8 = null;
@@ -78,11 +140,11 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8, debug_mod
                     if (std.mem.eql(u8, year_part, "1604") or year_part.len == 0) {
                         answer = month_day_full;
                     } else {
-                        answer = try std.fmt.allocPrint(allocator, "{s}, {s}", .{ month_day_full, year_part });
+                        answer = try std.fmt.allocPrint(alloc, "{s}, {s}", .{ month_day_full, year_part });
                     }
 
                     // Create Anki card
-                    const card = try std.fmt.allocPrint(allocator, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, answer });
+                    const card = try std.fmt.allocPrint(alloc, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, answer });
                     try cards.append(card);
 
                     if (debug_mode) {
@@ -107,12 +169,10 @@ fn createAnkiCards(allocator: std.mem.Allocator, raw_data: []const u8, debug_mod
     std.debug.print("In Anki: File -> Import -> Select birthdays.txt -> Set field separator to Tab\n", .{});
 }
 
-fn callback(){
-
-
+fn callback() void {
     // Check for --debug flag
-    const args = try std.process.argsAlloc(arena.allocator());
-    defer std.process.argsFree(arena.allocator(), args);
+    const args = std.process.argsAlloc(allocator) catch return;
+    defer std.process.argsFree(allocator, args);
 
     var debug_mode = false;
     for (args) |arg| {
@@ -148,9 +208,9 @@ fn callback(){
     ;
 
     const argv = [_][]const u8{ "osascript", "-e", applescript };
-    var child = std.process.Child.init(&argv, arena.allocator());
+    var child = std.process.Child.init(&argv, allocator);
     child.stdout_behavior = .Pipe;
-    try child.spawn();
+    child.spawn() catch return;
 
     // Read stdout before waiting using buffered approach
     const stdout = child.stdout.?;
@@ -161,10 +221,10 @@ fn callback(){
     // Read all available data
     br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
         error.EndOfStream => {}, // This is expected when we reach the end
-        else => return err,
+        else => return,
     };
 
-    const exit_code = try child.wait();
+    const exit_code = child.wait() catch return;
     if (exit_code == .Exited and exit_code.Exited == 0) {
         const raw_output = fbs.getWritten();
         if (debug_mode) {
@@ -172,7 +232,7 @@ fn callback(){
         }
 
         // Parse the birthday data and create Anki cards
-        try createAnkiCards(arena.allocator(), raw_output, debug_mode);
+        createAnkiCards(allocator, raw_output, debug_mode) catch return;
     } else {
         std.log.info("Got an error", .{});
     }
@@ -180,36 +240,110 @@ fn callback(){
 
 
 // C-compatible wrapper function
-export fn buttonClicked(_: ?*c.NSButton) void {
+export fn buttonClicked(_: c.id, _: c.SEL) void {
+    std.debug.print("Button clicked! Running birthday card generator...\n", .{});
     callback();
 }
 
+fn createNSString(text: [*:0]const u8) c.id {
+    const NSString = objc_getClass("NSString");
+    const alloc_sel = sel_registerName("alloc");
+    const initWithUTF8String_sel = sel_registerName("initWithUTF8String:");
+    
+    const string_alloc = objc_msgSend(NSString, alloc_sel);
+    return objc_msgSend_ptr(string_alloc, initWithUTF8String_sel, text);
+}
+
 pub fn main() !void {
-    _ = c.NSApplicationLoad();
-    const app = c.NSApplication.sharedApplication();
+    std.debug.print("Starting GUI application...\n", .{});
     
-    // Create window
-    const window = c.NSWindow.alloc().initWithContentRect_styleMask_backing_defer(
-        c.NSMakeRect(100, 100, 400, 300),
-        c.NSWindowStyleMaskTitled | c.NSWindowStyleMaskClosable | c.NSWindowStyleMaskResizable,
-        c.NSBackingStoreBuffered,
-        false
-    );
+    // Initialize NSApplication
+    const NSApplication = objc_getClass("NSApplication");
+    const sharedApplication_sel = sel_registerName("sharedApplication");
+    const app = objc_msgSend(NSApplication, sharedApplication_sel);
     
-    window.setTitle(c.NSString.stringWithUTF8String("Zig Mac App"));
+    // Set app activation policy to regular app
+    const setActivationPolicy_sel = sel_registerName("setActivationPolicy:");
+    const policy_func = @as(*const fn (c.id, c.SEL, c_long) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = policy_func(app, setActivationPolicy_sel, 0); // NSApplicationActivationPolicyRegular
     
-    // Create button
-    const button = c.NSButton.alloc().initWithFrame(c.NSMakeRect(150, 150, 100, 30));
-    button.setTitle(c.NSString.stringWithUTF8String("Click Me"));
-    button.setBezelStyle(c.NSBezelStyleRounded);
+    std.debug.print("Created NSApplication...\n", .{});
     
-    // Set target and action
-    button.setTarget(null);
-    button.setAction(@selector("buttonClicked:"));
+    // Create window with larger size and centered position
+    const NSWindow = objc_getClass("NSWindow");
+    const alloc_sel = sel_registerName("alloc");
+    const window_alloc = objc_msgSend(NSWindow, alloc_sel);
+    
+    const initWithContentRect_sel = sel_registerName("initWithContentRect:styleMask:backing:defer:");
+    const window_rect = NSMakeRect(200, 200, 500, 400); // Larger and more centered
+    const style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable;
+    
+    // This is complex due to the function signature, let's use a simpler approach
+    const func = @as(*const fn (c.id, c.SEL, NSRect, c_ulong, c_ulong, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const window = func(window_alloc, initWithContentRect_sel, window_rect, style_mask, NSBackingStoreBuffered, false);
+    
+    std.debug.print("Created window...\n", .{});
+    
+    // Set window title
+    const setTitle_sel = sel_registerName("setTitle:");
+    const title = createNSString("Birthday Card Generator");
+    _ = objc_msgSend_id(window, setTitle_sel, title);
+    
+    // Center the window
+    const center_sel = sel_registerName("center");
+    _ = objc_msgSend(window, center_sel);
+    
+    std.debug.print("Set window title and centered...\n", .{});
+    
+    // Create button with better positioning
+    const NSButton = objc_getClass("NSButton");
+    const button_alloc = objc_msgSend(NSButton, alloc_sel);
+    
+    const initWithFrame_sel = sel_registerName("initWithFrame:");
+    const button_rect = NSMakeRect(200, 200, 120, 40); // Larger button, better positioned
+    const button_func = @as(*const fn (c.id, c.SEL, NSRect) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const button = button_func(button_alloc, initWithFrame_sel, button_rect);
+    
+    // Set button title
+    const button_title = createNSString("Generate Cards");
+    _ = objc_msgSend_id(button, setTitle_sel, button_title);
+    
+    // Set button style
+    const setBezelStyle_sel = sel_registerName("setBezelStyle:");
+    const bezel_func = @as(*const fn (c.id, c.SEL, c_ulong) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = bezel_func(button, setBezelStyle_sel, NSBezelStyleRounded);
+    
+    std.debug.print("Created and configured button...\n", .{});
+    
+    // Set button target and action
+    const setTarget_sel = sel_registerName("setTarget:");
+    _ = objc_msgSend_id(button, setTarget_sel, null);
+    
+    const setAction_sel = sel_registerName("setAction:");
+    const action = sel_registerName("buttonClicked:");
+    const action_func = @as(*const fn (c.id, c.SEL, c.SEL) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = action_func(button, setAction_sel, action);
     
     // Add button to window
-    window.contentView().addSubview(button);
+    const contentView_sel = sel_registerName("contentView");
+    const content_view = objc_msgSend(window, contentView_sel);
+    const addSubview_sel = sel_registerName("addSubview:");
+    _ = objc_msgSend_id(content_view, addSubview_sel, button);
     
-    window.makeKeyAndOrderFront(null);
-    app.run();
+    std.debug.print("Added button to window...\n", .{});
+    
+    // Make sure the app is active and window is visible
+    const activateIgnoringOtherApps_sel = sel_registerName("activateIgnoringOtherApps:");
+    const activate_func = @as(*const fn (c.id, c.SEL, bool) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    _ = activate_func(app, activateIgnoringOtherApps_sel, true);
+    
+    // Show window
+    const makeKeyAndOrderFront_sel = sel_registerName("makeKeyAndOrderFront:");
+    _ = objc_msgSend_id(window, makeKeyAndOrderFront_sel, null);
+    
+    std.debug.print("Window should now be visible!\n", .{});
+    
+    // Run the application
+    const run_sel = sel_registerName("run");
+    _ = objc_msgSend(app, run_sel);
 }
