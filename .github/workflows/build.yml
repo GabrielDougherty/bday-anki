@@ -55,5 +55,3 @@ jobs:
           name: bdays-macos-nix
           path: zig-out/bin/bdays
           retention-days: 30
-        path: zig-out/bin/bdays
-        retention-days: 30
