@@ -29,15 +29,11 @@ jobs:
         path: zig-out/bin/bdays
         retention-days: 30
 
-  build-macos-nix:
-    runs-on: macos-latest
-    
-    steps:
+build-macos-nix:
+  runs-on: macos-latest
+  steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Remove existing _nixbld1 user (workaround)
-      run: sudo dscl . -delete /Users/_nixbld1 || true
 
     - name: Install Nix
       uses: cachix/install-nix-action@v25
@@ -46,16 +42,18 @@ jobs:
         extra_nix_config: |
           experimental-features = nix-command flakes
           build-users-group =
-    
+
     - name: Build with Nix (impure mode)
       uses: nicknovitski/nix-develop@v1
       with:
         arguments: "--impure"
         command: "zig build"
-    
+
     - name: Upload build artifacts (nix)
       uses: actions/upload-artifact@v4
       with:
         name: bdays-macos-nix
+        path: zig-out/bin/bdays
+        retention-days: 30
         path: zig-out/bin/bdays
         retention-days: 30
