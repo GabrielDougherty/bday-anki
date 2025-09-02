@@ -36,6 +36,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Remove existing _nixbld1 user (workaround)
+      run: sudo dscl . -delete /Users/_nixbld1 || true
+
     - name: Install Nix
       uses: cachix/install-nix-action@v25
       with:
