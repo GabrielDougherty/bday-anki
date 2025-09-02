@@ -10,6 +10,22 @@ A macOS application that generates Anki flashcards from the birthdays in your Ap
 - Generates Anki-compatible flashcards in the format "When is [Name]'s birthday?" → "[Date]"
 - Native macOS GUI with progress tracking
 
+## Installation
+
+Download a .dmg from https://github.com/GabrielDougherty/bday-anki/releases and run it.
+
+## Usage
+
+1. Launch the application
+2. Click "Generate Cards" to create flashcards from your contacts
+3. The app will request permission to access your Contacts if needed
+4. Choose a location to save the output file (optional - defaults to Downloads)
+5. Import the generated TSV file into Anki:
+   - In Anki: File → Import
+   - Select the generated file
+   - Set field separator to "Tab"
+   - Import the cards
+
 ## Requirements
 
 - macOS 11.0 or later
@@ -82,18 +98,6 @@ The script will:
 - Build the latest code
 - Copy the binary to the app bundle
 - Create a DMG installer named `AnkiBirthdays-[VERSION].dmg`
-
-## Usage
-
-1. Launch the application
-2. Click "Generate Cards" to create flashcards from your contacts
-3. The app will request permission to access your Contacts if needed
-4. Choose a location to save the output file (optional - defaults to Downloads)
-5. Import the generated TSV file into Anki:
-   - In Anki: File → Import
-   - Select the generated file
-   - Set field separator to "Tab"
-   - Import the cards
 
 ## Architecture
 
