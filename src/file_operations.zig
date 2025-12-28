@@ -17,7 +17,7 @@ pub fn openFileLocation() void {
     objc_helpers.objc.dispatch_async_f(main_queue, null, openFileLocationOnMainThread);
 }
 
-export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.C) void {
+export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.c) void {
     _ = context; // Unused
     
     std.debug.print("Showing save panel on main thread...\n", .{});
@@ -70,7 +70,7 @@ export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.C) void {
     
     // Run the panel modally
     const runModal_sel = objc_helpers.sel_registerName("runModal");
-    const response_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL) callconv(.C) c_long, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const response_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL) callconv(.c) c_long, @ptrCast(&objc_helpers.objc.objc_msgSend));
     const response = response_func(save_panel, runModal_sel);
     
     // NSModalResponseOK = 1
@@ -86,7 +86,7 @@ export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.C) void {
             
             // Convert NSString to C string
             const UTF8String_sel = objc_helpers.sel_registerName("UTF8String");
-            const path_cstring_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL) callconv(.C) [*:0]const u8, @ptrCast(&objc_helpers.objc.objc_msgSend));
+            const path_cstring_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL) callconv(.c) [*:0]const u8, @ptrCast(&objc_helpers.objc.objc_msgSend));
             const path_cstring = path_cstring_func(path_nsstring, UTF8String_sel);
             
             // Get just the directory part (remove filename)
@@ -108,7 +108,7 @@ export fn showSavePanelOnMainThread(context: ?*anyopaque) callconv(.C) void {
     }
 }
 
-export fn openFileLocationOnMainThread(context: ?*anyopaque) callconv(.C) void {
+export fn openFileLocationOnMainThread(context: ?*anyopaque) callconv(.c) void {
     _ = context; // Unused
     
     std.debug.print("Opening file location in Finder...\n", .{});
@@ -145,7 +145,7 @@ export fn openFileLocationOnMainThread(context: ?*anyopaque) callconv(.C) void {
     
     // Open the directory in Finder
     const openURL_sel = objc_helpers.sel_registerName("openURL:");
-    const success_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.C) bool, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const success_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.c) bool, @ptrCast(&objc_helpers.objc.objc_msgSend));
     const success = success_func(workspace, openURL_sel, directory_url);
     
     if (success) {

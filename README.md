@@ -36,7 +36,7 @@ Download a .dmg from https://github.com/GabrielDougherty/bday-anki/releases and 
 
 ### Building without Nix
 
-1. Install Zig 0.14.1 from [ziglang.org](https://ziglang.org/download/)
+1. Install Zig 0.15.2 from [ziglang.org](https://ziglang.org/download/)
 2. Clone this repository
 3. Build the application:
    ```bash

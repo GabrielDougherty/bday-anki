@@ -6,8 +6,8 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
     // Split by colons to separate name:birthday pairs
     var it = std.mem.splitScalar(u8, raw_data, ':');
 
-    var cards = std.ArrayList([]const u8).init(alloc);
-    defer cards.deinit();
+    var cards: std.ArrayList([]const u8) = .{};
+    defer cards.deinit(alloc);
 
     var current_name: ?[]const u8 = null;
     var total_segments: usize = 0;
@@ -23,7 +23,7 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
 
     while (it.next()) |segment| {
         processed_segments += 1;
-        
+
         // Update progress every few segments
         if (processed_segments % 5 == 0 or processed_segments == total_segments) {
             threading.setProgressValue(@as(f64, @floatFromInt(processed_segments)), @as(f64, @floatFromInt(total_segments)), alloc);
@@ -96,7 +96,7 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
 
                     // Create Anki card
                     const card = try std.fmt.allocPrint(alloc, "When is {s}'s birthday?\t{s}\n", .{ current_name.?, answer });
-                    try cards.append(card);
+                    try cards.append(alloc, card);
 
                     if (debug_mode) {
                         std.debug.print("Card: When is {s}'s birthday? -> {s}\n", .{ current_name.?, answer });
@@ -109,7 +109,7 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
     }
 
     // Write to TSV file for Anki import
-    const output_path = if (file_operations.global_output_path) |path| 
+    const output_path = if (file_operations.global_output_path) |path|
         try std.fmt.allocPrint(alloc, "{s}/birthdays.txt", .{path})
     else blk: {
         // Default to ~/Downloads
@@ -117,7 +117,7 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
         break :blk try std.fmt.allocPrint(alloc, "{s}/Downloads/birthdays.txt", .{home_dir});
     };
     defer alloc.free(output_path);
-    
+
     const file = try std.fs.cwd().createFile(output_path, .{});
     defer file.close();
 
@@ -125,11 +125,11 @@ pub fn createAnkiCards(alloc: std.mem.Allocator, raw_data: []const u8, debug_mod
         try file.writeAll(card);
     }
 
-    const status_message = try std.fmt.allocPrint(alloc, "Created {s} with {} cards for Anki import.\nIn Anki: File -> Import -> Select the file -> Set field separator to Tab", .{output_path, cards.items.len});
-    
-    std.debug.print("\nCreated {s} with {} cards for Anki import.\n", .{output_path, cards.items.len});
+    const status_message = try std.fmt.allocPrint(alloc, "Created {s} with {} cards for Anki import.\nIn Anki: File -> Import -> Select the file -> Set field separator to Tab", .{ output_path, cards.items.len });
+
+    std.debug.print("\nCreated {s} with {} cards for Anki import.\n", .{ output_path, cards.items.len });
     std.debug.print("In Anki: File -> Import -> Select the file -> Set field separator to Tab\n", .{});
-    
+
     return status_message;
 }
 
@@ -161,25 +161,17 @@ pub fn fetchContactsData(allocator: std.mem.Allocator, debug_mode: bool) ?[]cons
     ;
 
     const argv = [_][]const u8{ "osascript", "-e", applescript };
-    var child = std.process.Child.init(&argv, allocator);
-    child.stdout_behavior = .Pipe;
-    child.spawn() catch return null;
 
-    // Read stdout before waiting using buffered approach
-    const stdout = child.stdout.?;
-    var br = std.io.bufferedReaderSize(4096, stdout.reader());
-    var dest_buf: [8192]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&dest_buf);
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &argv,
+        .max_output_bytes = 8192,
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-    // Read all available data
-    br.reader().streamUntilDelimiter(fbs.writer(), 0, dest_buf.len) catch |err| switch (err) {
-        error.EndOfStream => {}, // This is expected when we reach the end
-        else => return null,
-    };
-
-    const exit_code = child.wait() catch return null;
-    if (exit_code == .Exited and exit_code.Exited == 0) {
-        const raw_output = fbs.getWritten();
+    if (result.term == .Exited and result.term.Exited == 0) {
+        const raw_output = result.stdout;
         if (debug_mode) {
             std.debug.print("Raw output: {s}\n\n", .{raw_output});
         }

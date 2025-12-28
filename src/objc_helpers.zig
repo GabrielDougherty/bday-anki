@@ -17,22 +17,22 @@ pub fn sel_registerName(name: [*:0]const u8) c.SEL {
 }
 
 pub fn objc_msgSend(target: anytype, sel: c.SEL) c.id {
-    const func = @as(*const fn (c.id, c.SEL) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const func = @as(*const fn (c.id, c.SEL) callconv(.c) c.id, @ptrCast(&c.objc_msgSend));
     return func(@as(c.id, @alignCast(@ptrCast(target))), sel);
 }
 
 pub fn objc_msgSend_stret(target: anytype, sel: c.SEL, comptime RetType: type) RetType {
-    const func = @as(*const fn (c.id, c.SEL) callconv(.C) RetType, @ptrCast(&c.objc_msgSend));
+    const func = @as(*const fn (c.id, c.SEL) callconv(.c) RetType, @ptrCast(&c.objc_msgSend));
     return func(@as(c.id, @alignCast(@ptrCast(target))), sel);
 }
 
 pub fn objc_msgSend_id(target: anytype, sel: c.SEL, arg: c.id) c.id {
-    const func = @as(*const fn (c.id, c.SEL, c.id) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const func = @as(*const fn (c.id, c.SEL, c.id) callconv(.c) c.id, @ptrCast(&c.objc_msgSend));
     return func(@as(c.id, @alignCast(@ptrCast(target))), sel, arg);
 }
 
 pub fn objc_msgSend_ptr(target: anytype, sel: c.SEL, arg: ?*const anyopaque) c.id {
-    const func = @as(*const fn (c.id, c.SEL, ?*const anyopaque) callconv(.C) c.id, @ptrCast(&c.objc_msgSend));
+    const func = @as(*const fn (c.id, c.SEL, ?*const anyopaque) callconv(.c) c.id, @ptrCast(&c.objc_msgSend));
     return func(@as(c.id, @alignCast(@ptrCast(target))), sel, arg);
 }
 

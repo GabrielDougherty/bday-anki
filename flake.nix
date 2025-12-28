@@ -11,11 +11,13 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         isDarwin = pkgs.stdenv.isDarwin;
+        # Require Zig 0.15.2 explicitly (no fallback)
+        zigPkg = pkgs.zig_0_15_2;
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            zig
+            zigPkg
             zls
           ];
 
