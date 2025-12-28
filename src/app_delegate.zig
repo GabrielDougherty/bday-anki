@@ -57,7 +57,7 @@ pub fn createCustomResponder(allocator: std.mem.Allocator) objc_helpers.objc.id 
     
     // Add our method to the class for generating cards
     const generateCards_sel = objc_helpers.sel_registerName("generateCards:");
-    const method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.C) void, @ptrCast(&generateCardsImpl));
+    const method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.c) void, @ptrCast(&generateCardsImpl));
     
     const success1 = objc_helpers.objc.class_addMethod(CustomResponder, generateCards_sel, 
         @as(objc_helpers.objc.IMP, @ptrCast(method_impl)), "v@:@");
@@ -68,7 +68,7 @@ pub fn createCustomResponder(allocator: std.mem.Allocator) objc_helpers.objc.id 
     
     // Add method for choosing location
     const chooseLocation_sel = objc_helpers.sel_registerName("chooseLocation:");
-    const location_method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.C) void, @ptrCast(&chooseLocationImpl));
+    const location_method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.c) void, @ptrCast(&chooseLocationImpl));
     
     const success2 = objc_helpers.objc.class_addMethod(CustomResponder, chooseLocation_sel, 
         @as(objc_helpers.objc.IMP, @ptrCast(location_method_impl)), "v@:@");
@@ -79,7 +79,7 @@ pub fn createCustomResponder(allocator: std.mem.Allocator) objc_helpers.objc.id 
     
     // Add method for opening file location
     const openLocation_sel = objc_helpers.sel_registerName("openLocation:");
-    const open_method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.C) void, @ptrCast(&openLocationImpl));
+    const open_method_impl = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, objc_helpers.objc.id) callconv(.c) void, @ptrCast(&openLocationImpl));
     
     const success3 = objc_helpers.objc.class_addMethod(CustomResponder, openLocation_sel, 
         @as(objc_helpers.objc.IMP, @ptrCast(open_method_impl)), "v@:@");

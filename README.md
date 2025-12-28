@@ -34,9 +34,9 @@ Download a .dmg from https://github.com/GabrielDougherty/bday-anki/releases and 
 
 ## Development
 
-### Building without Nix
+### Building
 
-1. Install Zig 0.14.1 from [ziglang.org](https://ziglang.org/download/)
+1. Install Zig 0.15.2 from [ziglang.org](https://ziglang.org/download/)
 2. Clone this repository
 3. Build the application:
    ```bash
@@ -46,29 +46,6 @@ Download a .dmg from https://github.com/GabrielDougherty/bday-anki/releases and 
    ```bash
    ./zig-out/bin/bdays
    ```
-
-### Building with Nix (Recommended for reproducible builds)
-
-1. Install Nix with flakes support
-2. Clone this repository
-3. Enter the development environment:
-   ```bash
-   nix develop --impure
-   ```
-   The `--impure` flag is required to access macOS system frameworks.
-4. Build the application:
-   ```bash
-   zig build
-   ```
-5. Run the application:
-   ```bash
-   ./zig-out/bin/bdays
-   ```
-
-Alternatively, you can build directly without entering the shell:
-```bash
-nix develop --impure -c zig build
-```
 
 ### Debug Mode
 

@@ -18,7 +18,7 @@ pub fn main() !void {
     
     // Set app activation policy to regular app
     const setActivationPolicy_sel = objc_helpers.sel_registerName("setActivationPolicy:");
-    const policy_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, c_long) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const policy_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, c_long) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
     _ = policy_func(app, setActivationPolicy_sel, 0); // NSApplicationActivationPolicyRegular
     
     std.debug.print("Created NSApplication...\n", .{});
@@ -47,7 +47,7 @@ pub fn main() !void {
     
     // Hide progress bar and status label initially
     const setHidden_sel = objc_helpers.sel_registerName("setHidden:");
-    const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
     _ = hidden_func(progress_bar, setHidden_sel, true);
     _ = hidden_func(status_label, setHidden_sel, true);
     _ = hidden_func(open_location_button, setHidden_sel, true);
@@ -75,7 +75,7 @@ pub fn main() !void {
     
     // Set the window to release when closed
     const setReleasedWhenClosed_sel = objc_helpers.sel_registerName("setReleasedWhenClosed:");
-    const bool_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const bool_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
     _ = bool_func(window, setReleasedWhenClosed_sel, true);
     
     // Add UI elements to window
@@ -98,7 +98,7 @@ pub fn main() !void {
     
     // Make app active and show window
     const activateIgnoringOtherApps_sel = objc_helpers.sel_registerName("activateIgnoringOtherApps:");
-    const activate_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+    const activate_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
     _ = activate_func(app, activateIgnoringOtherApps_sel, true);
     
     const makeKeyAndOrderFront_sel = objc_helpers.sel_registerName("makeKeyAndOrderFront:");

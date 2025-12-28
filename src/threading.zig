@@ -56,14 +56,14 @@ pub fn setProgressValue(value: f64, max_value: f64, allocator: std.mem.Allocator
 }
 
 // Functions that actually update the UI (must run on main thread)
-export fn showProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
+export fn showProgressBarOnMainThread(context: ?*anyopaque) callconv(.c) void {
     _ = context; // Unused
     if (global_progress_bar) |progress_bar| {
         std.debug.print("Showing progress bar on main thread...\n", .{});
         
         // Show progress bar
         const setHidden_sel = objc_helpers.sel_registerName("setHidden:");
-        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
         _ = hidden_func(progress_bar, setHidden_sel, false);
         
         // Start animation for indeterminate progress
@@ -76,7 +76,7 @@ export fn showProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
     }
 }
 
-export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
+export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.c) void {
     _ = context; // Unused
     if (global_progress_bar) |progress_bar| {
         std.debug.print("Hiding progress bar on main thread...\n", .{});
@@ -87,7 +87,7 @@ export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
         
         // Hide progress bar
         const setHidden_sel = objc_helpers.sel_registerName("setHidden:");
-        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
         _ = hidden_func(progress_bar, setHidden_sel, true);
         
         std.debug.print("Stopped and hid progress bar on main thread\n", .{});
@@ -96,7 +96,7 @@ export fn hideProgressBarOnMainThread(context: ?*anyopaque) callconv(.C) void {
     }
 }
 
-export fn updateStatusLabelOnMainThread(message_ptr: ?*anyopaque) callconv(.C) void {
+export fn updateStatusLabelOnMainThread(message_ptr: ?*anyopaque) callconv(.c) void {
     if (message_ptr) |ptr| {
         // Convert back to proper slice using the allocated memory
         const message_bytes = @as([*]u8, @ptrCast(ptr));
@@ -130,7 +130,7 @@ export fn updateStatusLabelOnMainThread(message_ptr: ?*anyopaque) callconv(.C) v
             
             // Make the label visible
             const setHidden_sel = objc_helpers.sel_registerName("setHidden:");
-            const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+            const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
             _ = hidden_func(status_label, setHidden_sel, false);
             
         } else {
@@ -144,7 +144,7 @@ export fn updateStatusLabelOnMainThread(message_ptr: ?*anyopaque) callconv(.C) v
     }
 }
 
-export fn showOpenLocationButtonOnMainThread(context: ?*anyopaque) callconv(.C) void {
+export fn showOpenLocationButtonOnMainThread(context: ?*anyopaque) callconv(.c) void {
     _ = context; // Unused
     
     if (global_open_location_button) |open_button| {
@@ -152,14 +152,14 @@ export fn showOpenLocationButtonOnMainThread(context: ?*anyopaque) callconv(.C) 
         
         // Make the button visible
         const setHidden_sel = objc_helpers.sel_registerName("setHidden:");
-        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+        const hidden_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
         _ = hidden_func(open_button, setHidden_sel, false);
     } else {
         std.debug.print("Global open location button is null!\n", .{});
     }
 }
 
-export fn setProgressValueOnMainThread(context_ptr: ?*anyopaque) callconv(.C) void {
+export fn setProgressValueOnMainThread(context_ptr: ?*anyopaque) callconv(.c) void {
     if (context_ptr) |ptr| {
         const SetProgressValueContext = struct {
             value: f64,
@@ -175,17 +175,17 @@ export fn setProgressValueOnMainThread(context_ptr: ?*anyopaque) callconv(.C) vo
         if (global_progress_bar) |progress_bar| {
             // Switch to determinate mode if needed
             const setIndeterminate_sel = objc_helpers.sel_registerName("setIndeterminate:");
-            const indeterminate_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+            const indeterminate_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, bool) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
             _ = indeterminate_func(progress_bar, setIndeterminate_sel, false);
             
             // Set max value
             const setMaxValue_sel = objc_helpers.sel_registerName("setMaxValue:");
-            const max_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, f64) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+            const max_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, f64) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
             _ = max_func(progress_bar, setMaxValue_sel, max_value);
             
             // Set current value
             const setDoubleValue_sel = objc_helpers.sel_registerName("setDoubleValue:");
-            const value_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, f64) callconv(.C) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
+            const value_func = @as(*const fn (objc_helpers.objc.id, objc_helpers.objc.SEL, f64) callconv(.c) objc_helpers.objc.id, @ptrCast(&objc_helpers.objc.objc_msgSend));
             _ = value_func(progress_bar, setDoubleValue_sel, value);
             
             std.debug.print("Set progress value to {}/{} on main thread\n", .{value, max_value});
